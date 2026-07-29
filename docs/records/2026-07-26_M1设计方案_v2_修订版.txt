@@ -1,0 +1,158 @@
+==============================================================
+流程办事地图 · 里程碑1 设计方案（v2 修订版）
+日期：2026-07-26
+状态：已通过用户两轮评审，并入 4 条修订，待最终确认后动工
+项目目录：/Users/leo/Workflow_Visualization_system
+==============================================================
+
+【一】系统目标
+把 Word 里的"物理机资源申请流程"变成数据驱动的活地图：每个环节回答
+归谁办 / 做什么交什么 / 在哪些系统怎么操作（带链接、依据）。
+M1 核心：管理模式改人真正落库，刷新后所有人看到同一份最新，且修改留痕。
+
+三层数据结构：
+- 流程定义层：环节顺序 + 环节对应岗位（很少变）
+- 岗位→人映射层：每个岗位当前是谁（管理员维护，改一处处处同步）
+- 人员层：人的信息（以后接内网通讯录）
+
+【二】假设清单（A1–A9，含修订）
+A1  所有接口都要登录（viewer 可读，admin 可写），不开放匿名。
+A2  JWT Bearer（PyJWT + bcrypt，12h 有效，localStorage 存 token）；
+    以后换 4A/SSO 只改 get_current_user 依赖。
+A3  新增 GET /persons（管理模式下拉必须）、GET /auth/me（前端角色显隐）。
+A4  change_logs：old_value/new_value 存 person_id，同时冗余
+    old_name/new_name 姓名快照（改名/停用后日志仍可读）；
+    changed_by 存 username 字符串（不建 users 外键）；role_name 查询时 join。
+A5  双层测试：快速单测跑 SQLite 内存库；另设 PG 集成测试组，
+    用 testcontainers 起真实 postgres:16-alpine（session 级 fixture，
+    @pytest.mark.pg 标记可单独选跑；TEST_DATABASE_URL 环境变量可指向
+    外部 PG 作离线备用路径）。dev 依赖单独放 requirements-dev.txt。
+A6  Alembic 只管表结构；种子数据用独立幂等脚本（python -m app.seed，
+    库为空才灌），容器启动先 migrate 后 seed。
+A7  初始账号 admin / viewer，初始密码在 .env；首次登录强制改密不做。
+A8  assignments.role_id 作主键 = 一岗一人；一人多岗允许（chengl/chenbl case）。
+A9  生产前端 = nginx 容器托管 vite build 产物 + 反代 /api；开发用 vite proxy。
+
+【三】已拍板事项
+- 环节 code "0100" 原样保留，仅作展示标签；顺序以 order_index 为准。
+- 管理模式入口仅 admin 可见，viewer 完全看不到。
+- 同人改派 = no-op：不写日志、不动库，返回 changed:false。
+- 变更记录只读页签（admin 可见）进 M1。
+- 用户认可的 3 处模型调整：step_roles 联合主键；assignments 用
+  role_id 作主键；change_logs 值字段用 String。
+
+【四】数据表（终版）
+persons：      id PK, name, dept, title, contact(可空), source(manual/directory), active
+roles：        id PK, code 唯一, name
+assignments：  role_id PK(兼FK→roles), person_id FK→persons, updated_by, updated_at
+flows：        id PK, name, description, status(draft/published), updated_by, updated_at
+steps：        id PK, flow_id FK, code, name, task, order_index
+step_roles：   联合主键 (step_id, role_id)，均 FK
+guide_items：  id PK, step_id FK, order_index, system_name, url(可空),
+               image_path(可空), action_text, note(可空)
+change_logs：  id PK, entity_type, entity_id, field, old_value, new_value,
+               old_name, new_name（姓名快照，可空；首次设岗 old_* 为 NULL）,
+               changed_by, changed_at；只插不改不删
+users：        id PK, username 唯一, password_hash, role(viewer/admin)
+
+【五】接口清单（终版）
+POST /auth/login            公开   {username,password} → {access_token, user:{username,role}}
+GET  /auth/me               登录   当前用户
+GET  /flows                 登录   流程列表
+GET  /flows/{id}            登录   流程+环节(按 order_index)+岗位解析成当前责任人+指引(按 order_index)
+GET  /persons               登录   全部人员（下拉用）
+PUT  /assignments/{role_id} admin  {person_id} → 语义见下
+GET  /change-logs           admin  倒序，limit/offset 分页
+
+PUT /assignments/{role_id} 语义：
+- 换成不同的人：一个事务内更新 assignments + 插一条 change_log
+  （含 old/new person_id 和姓名快照），返回 {role_id, person_id, changed:true, change_log_id}
+- 同人（no-op）：返回 {role_id, person_id, changed:false, change_log_id:null}，不写日志
+- person_id 不存在 → 422；非 admin → 403；未登录 → 401
+
+GET /change-logs 单条结构（前端直接渲染）：
+{ id, entity_type:"assignment", entity_id, field:"person_id",
+  old_value, new_value, old_name, new_name,
+  role_name, changed_by, changed_at }
+
+【六】前端改造点
+1. JSX → TSX 拆组件，写死数据全删改走 API
+2. 登录页 + AuthContext，token 失效回登录页
+3. "管理模式"按钮仅 admin 可见；下拉改人 → PUT → 成功刷新流程数据
+4. admin 专属"变更记录"页签：只读表格（时间/操作人/岗位/原责任人/新责任人），
+   倒序 + 加载更多
+5. Tailwind 本地 PostCSS 构建、字体系统栈，零外部请求
+
+【七】目录结构
+Workflow_Visualization_system/
+├── docs/prototype.jsx            （原型参照，种子数据依据）
+├── docs/records/                 （本记录目录）
+├── docker-compose.yml            （postgres + backend + frontend/nginx）
+├── .env.example
+├── README.md
+├── backend/
+│   ├── Dockerfile  requirements.txt  requirements-dev.txt
+│   ├── alembic.ini  .env.example  pytest.ini（注册 pg marker）
+│   ├── alembic/env.py + versions/0001_init.py
+│   ├── app/
+│   │   ├── main.py  config.py  db.py  models.py  schemas.py
+│   │   ├── security.py  deps.py
+│   │   ├── routers/{auth,flows,persons,assignments,change_logs}.py
+│   │   └── seed.py
+│   └── tests/
+│       ├── conftest.py（SQLite fixture + testcontainers PG fixture）
+│       ├── test_auth.py  test_flows.py  test_persons.py
+│       ├── test_assignments.py  test_change_logs.py
+│       └── test_pg_integration.py（@pytest.mark.pg）
+└── frontend/
+    ├── Dockerfile(多阶段→nginx)  nginx.conf
+    ├── package.json(锁lock)  vite.config.ts  tailwind.config.js
+    ├── postcss.config.js  tsconfig.json
+    └── src/
+        ├── api/client.ts  auth/AuthContext.tsx  types.ts
+        ├── components/{FlowBar,StepDetail,GuideList,ManageSelect,
+        │              LoginPage,ChangeLogPanel}.tsx
+        ├── App.tsx  main.tsx  index.css
+
+【八】任务拆解与实现顺序
+① 脚手架：拷 docs/prototype.jsx、compose 骨架、.env.example、README
+② 后端骨架：config/db/models + alembic 首迁，真实 PG 建表成功
+③ PG 测试基座：testcontainers fixture + 迁移可执行测试 + 唯一约束测试
+④ seed.py 灌原型数据（PG 可查、幂等）
+⑤ auth（security+login+deps）→ 配测试跑通
+⑥ GET /flows、GET /flows/{id} → 配测试跑通
+⑦ GET /persons → 配测试跑通
+⑧ PUT /assignments（事务、姓名快照、no-op 跳过、权限）→ 配测试跑通
+⑨ GET /change-logs → 配测试跑通
+⑩ backend Dockerfile，compose 联调（启动自动 migrate+seed）
+⑪ 前端脚手架 + api client + 登录
+⑫ UI 移植接线、管理模式持久化、变更记录页签
+⑬ frontend Dockerfile，整栈 compose up 验收
+
+【九】测试清单
+SQLite 快速组：
+- 登录：正确发 token / 错误 401 / 无 token 401
+- 权限：viewer 调 PUT → 403；viewer 调 GET /change-logs → 403
+- GET /flows/{id}：环节有序；011 解析出 3 个责任人；chenbl 同时出现在
+  hac、swDelivery 两岗；指引 8 条有序、note 正确
+- PUT /assignments：改人后详情返回新人；change_log 多一条且 old/new
+  姓名快照正确；hefa 上任不影响 chenbl 兼岗；同人改派 changed:false
+  且日志数不变；person_id 不存在 → 422
+- 模型关系：step.roles 多对多、guide 排序
+
+PG 集成组（@pytest.mark.pg，testcontainers 起真实 PG）：
+- alembic upgrade head 在全新 PG 执行成功；downgrade base → 再 upgrade 往返成功
+- 重复 assignments.role_id 插入 → IntegrityError
+- 重复 (step_id, role_id) 插入 step_roles → IntegrityError
+- seed 脚本在真实 PG 跑两次：第二次不产生重复数据（幂等）
+
+前端可选：api client 带 token 头的 vitest 冒烟（不阻塞验收）。
+
+【十】种子数据要点（来自原型）
+- 10 环节：010 提交资源申请 → 020 报送并网计划 → 030 并网审核 →
+  040 需求审核 → 050 资源IP交付 → 060 录入云盾 → 070 上架·网络·初始化 →
+  0100 堡垒机HAC绑定 → 011 并行三路交付 → 014 特权账号录入
+- 9 岗位 / 9 人；chenbl 兼 hac+swDelivery 两岗；hefa 不任岗（候选人）
+- 指引：环节 010 挂 8 条（含 2 条真实系统链接、3 条依据/注意）；
+  环节 050 挂 1 条
+==============================================================

@@ -1,0 +1,64 @@
+==============================================================
+流程办事地图 · 里程碑1 实现交付记录
+日期：2026-07-26
+状态：代码全量完成；SQLite 测试与真实进程冒烟全绿；
+      PG 集成测试与 compose 整栈验收因本机无 Docker 待执行
+==============================================================
+
+【一】已完成（任务①~⑫的代码部分）
+
+1. 仓库脚手架：monorepo（backend/ frontend/ docs/ 根 compose），
+   .env.example + .gitignore（.env 不入库）+ README。
+2. 后端（FastAPI + SQLAlchemy 2.0 + Alembic + Pydantic，锁版本）：
+   - 9 张表模型 + 手写 0001 迁移（迁移只管 schema）；
+   - seed.py 幂等灌入原型真实数据（1 流程/10 环节/9 岗位/9 人/9 条指引/2 账号）；
+   - 接口全部实现：POST /auth/login、GET /auth/me、GET /flows、
+     GET /flows/{id}、GET /persons、PUT /assignments/{role_id}（admin）、
+     GET /change-logs（admin，分页）；
+   - PUT 语义：事务内更新映射+写 change_log（含 old/new 姓名快照）；
+     同人 no-op 返回 changed:false 不写日志；422/404/403/401 齐备。
+   - TODO 已留：4A/SSO 替换点（deps.get_current_user）；
+     localStorage XSS 风险注释（client.ts）。
+3. 前端（React+Vite+TS+Tailwind 本地构建，零外部请求）：
+   - 原型移植为 TSX 并接 API；登录页 + AuthContext；
+   - 管理模式仅 admin 可见，改人落库并刷新；admin 专属"变更记录"页签；
+   - tsc 严格模式 + vite build 通过，产物自包含（157KB JS / 14KB CSS）。
+4. Docker 产物（待执行）：后端 Dockerfile + entrypoint.sh
+   （启动自动 alembic upgrade head + python -m app.seed + uvicorn）、
+   前端 Dockerfile（多阶段→nginx 反代 /api）、根 docker-compose.yml
+   （pg 健康检查 + 依赖编排）。
+
+【二】测试与验证结果
+
+- pytest SQLite 快速组：26/26 通过
+  （auth 7 / flows 6 / persons 2 / assignments 7 / change_logs 4）。
+- Alembic upgrade head（SQLite 实证）+ seed 两次执行幂等：通过。
+- 真实进程冒烟（uvicorn + SQLite，模拟容器 entrypoint 流程）：
+  1) admin 登录 OK
+  2) GET /flows/1 → 10 环节，010 责任人 练宇婷
+  3) PUT /assignments/1（owner→贺法）→ {"changed":true,"change_log_id":1}
+  4) 刷新后 010 责任人 → 贺法（改一处处处同步）
+  5) change_logs → old_name=练宇婷 new_name=贺法 changed_by=admin（快照正确）
+  6) viewer 改派 → HTTP 403
+  7) 同人 no-op → {"changed":false,"change_log_id":null}
+- 前端 npm run build（tsc + vite）：通过。
+
+【三】阻塞项（待用户配合）
+
+本机没有任何容器运行时（无 Docker/Podman/Colima/OrbStack），以下待执行：
+1. pytest -m pg（testcontainers 真实 PG：迁移往返、迁移与模型 metadata 比对、
+   assignments.role_id 主键、step_roles 联合主键、seed 幂等）——5 个用例已写完；
+2. 【检查点1】docker compose up postgres + backend（自动 migrate+seed）；
+3. 【检查点2】整栈 docker compose up --build 验收
+   （打开页面见种子流程、admin 改人刷新持久、change_log 有记录、viewer 无管理入口）。
+
+解除方式：安装任一容器运行时（推荐 OrbStack：brew install orbstack；
+或 Docker Desktop），启动后通知我，我立即执行以上三项并贴结果。
+
+【四】复跑命令备忘
+
+cd backend && ./.venv/bin/python -m pytest -m "not pg"   # SQLite 快速组
+cd backend && ./.venv/bin/python -m pytest -m pg          # PG 组（需 Docker）
+cd frontend && npm run build                              # 前端构建
+cp .env.example .env && docker compose up --build         # 整栈（需 Docker）
+==============================================================

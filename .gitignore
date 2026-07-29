@@ -1,0 +1,17 @@
+# 环境与密钥：只提交 .env.example，绝不提交真实 .env
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# Node / 前端产物
+node_modules/
+frontend/dist/
+
+# 系统
+.DS_Store

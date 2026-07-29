@@ -1,0 +1,60 @@
+==============================================================
+流程办事地图 · 漏洞修复记录（P0 全量 + 部分 P1）
+日期：2026-07-28
+依据：docs/records/2026-07-28_重构代码审查报告.txt 的修复方案
+结果：SQLite 39/39 ✅ · PG 6/6 ✅ · build ✅ · 活体冒烟 6/6 ✅
+==============================================================
+
+【P0-1】管理后台与前台隔离
+- 新增 components/RequireAdmin.tsx：管理路由集中守卫，非 admin 一律回首页；
+  App.tsx 中 /flows/:id/edit 由 RequireAdmin 包裹（服务端 require_admin 仍为最终防线）。
+- FlowDesignerPage 改 React.lazy 分包：viewer 不再下载设计器代码。
+  产物实证：FlowDesignerPage 独立 chunk 56.55KB（gzip 19KB），
+  主 bundle 256.58KB → 202.07KB。
+
+【P0-2】变更留痕可读性
+- 后端 _add_flow_log 快照语义修正：改名记 old_name=旧名/new_name=新名；
+  其余场景 new_name=流程当前名；删除记 old_name。
+- ChangeLogPanel 重写：列改为 时间/操作人/类型/对象/内容，
+  assignment（岗位改派 徽章）与 flow（创建/改名/说明/状态/定义/删除）双形态渲染。
+- 顺带排雷：old_value/new_value 为 String(100)，超长说明直接写会在 PG 崩
+  （SQLite 不校验长度，单测测不出）——已加 100 字符截断 + 测试。
+
+【P0-3】draft 流程对 viewer 隐藏
+- GET /flows/{id}：非 admin 且非 published → 404（不暴露存在性）。
+- 活体实证：viewer GET /api/flows/2 → 404；admin → 200。
+
+【P0-4】PUT /flows/{id}/definition no-op
+- 规范化 diff（环节 code/name/task/挂岗集合/指引四要素），完全一致 →
+  changed:false、change_log_id:null、不写日志（与 assignments 语义对齐）。
+- 顺带修复：先删后建改为「先整体预校验再动库」。
+
+【P1-5】published 冻结定义
+- PUT definition 对非 draft 流程 → 422「已发布流程请先回 draft 再修改定义」。
+- 名字/说明/状态的 PATCH 不受限。
+
+【清理项】
+- 移除 GET /flows 旧列表接口 + FlowListOut + 前端 FlowListItem（前端已不用）。
+- FlowMutationResult 增加 changed 字段；设计器 no-op 提示「定义未发生变化」。
+- react-router-dom 去掉 ^（7.18.1 锁死，与全仓风格一致）。
+
+【验证记录】
+- SQLite 快速组 39/39（新增 4 用例：published 冻结、definition no-op×2、
+  改名快照、超长截断；调整 flows 列表相关 2 例）
+- PG 集成组 6/6
+- npm build 通过（59 模块，分包生效）
+- 容器重建后活体冒烟 6/6：
+  1) viewer 看 draft → 404 ✅
+  2) published 改定义 → 422 ✅
+  3) 相同定义再存 → changed:false，日志 13→13 不变 ✅
+  4) 无变化 PATCH 不写日志（最新日志为 status 变更）✅
+  5) 300 字说明 PATCH → 200 不崩 ✅
+  6) 恢复 published 后 viewer 看 flow1 → 200 ✅
+  （冒烟产生的测试数据已恢复：说明、状态均还原）
+
+【未动项（留待后续）】
+- P1-6 PATCH 多字段多日志（每字段一条，可接受；返回最后一条 id）
+- P1-7 slug 保留作业务键（seed 幂等依赖），URL 迁移暂不做
+- P1-8 types.ts 与 schemas 的对齐仍靠手工（后续可上 openapi-typescript 生成）
+- P2：prompt/confirm 换模态、ICONS 契约收敛
+==============================================================
