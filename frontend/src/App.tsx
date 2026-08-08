@@ -7,6 +7,7 @@ import RequireAdmin from "./components/RequireAdmin";
 import DomainFlowsPage from "./pages/DomainFlowsPage";
 import DomainNavPage from "./pages/DomainNavPage";
 import FlowMapPage from "./pages/FlowMapPage";
+import FlowGuidePage from "./pages/FlowGuidePage";
 
 // 管理端页面懒加载：viewer 不下载设计器等管理代码（隔离 + 减小只读端体积）
 const FlowDesignerPage = lazy(() => import("./pages/FlowDesignerPage"));
@@ -40,6 +41,7 @@ export default function App() {
         }
       />
       <Route path="/flows/:id" element={<FlowMapPage user={user} onLogout={logout} />} />
+      <Route path="/flows/:id/guide" element={<FlowGuidePage user={user} onLogout={logout} />} />
       <Route
         path="/ledgers"
         element={

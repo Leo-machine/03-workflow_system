@@ -16,11 +16,12 @@ def test_domains_list_derives_published_count(client, viewer_token):
     assert response.status_code == 200
     domains = response.json()
 
-    assert len(domains) == 6
+    assert len(domains) == 7
     assert [domain["name"] for domain in domains] == [
         "主机运维", "存储运维", "备份设备运维", "云平台运维", "平台软件运维", "IT资源交付",
+        "协同办公体验区",
     ]
-    assert [domain["published_flow_count"] for domain in domains] == [0, 0, 0, 0, 0, 1]
+    assert [domain["published_flow_count"] for domain in domains] == [0, 0, 0, 0, 0, 1, 1]
 
 
 def test_delivery_domain_lists_five_flows_and_physical_is_adopted(
@@ -86,7 +87,7 @@ def test_seed_adopts_the_only_legacy_flow_with_steps_without_name_matching(db_se
     assert adopted.id == legacy.id
     assert adopted.name == "任意历史名称"
     assert adopted.status == "published"
-    assert db_session.scalar(select(func.count(Flow.id))) == 5
+    assert db_session.scalar(select(func.count(Flow.id))) == 6
 
 
 # ---------- 管理员业务域增改删 ----------
@@ -101,7 +102,7 @@ def test_domain_create_update_delete(client, admin_token):
     )
     assert r.status_code == 200, r.text
     domain = r.json()
-    assert domain["order_index"] == 6  # 排在 6 个种子域之后
+    assert domain["order_index"] == 7  # 排在 7 个种子域之后
     assert domain["published_flow_count"] == 0
 
     # 重码 / 非法码 → 422

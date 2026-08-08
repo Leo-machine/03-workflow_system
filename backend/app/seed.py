@@ -71,6 +71,31 @@ DOMAINS = [
     ("cloud-platform-operations", "云平台运维", "云平台运行维护。", "cloud"),
     ("platform-software-operations", "平台软件运维", "平台软件运行维护。", "software"),
     ("it-resource-delivery", "IT资源交付", "IT 资源申请、交付与扩容。", "resource-delivery"),
+    ("guided-experience", "协同办公体验区", "用于体验“带我办理”的逐步业务指引。", "network"),
+]
+
+DEMO_FLOW_SLUG = "video-meeting-support-demo"
+DEMO_STEPS = [
+    ("010", "确认会议需求", "先确认会议时间、参会范围和会议形式，避免后续重复调整。", [
+        ("会议组织平台", None, "核对会议主题、开始时间、预计时长以及主会场信息。", "跨单位会议建议至少提前 1 个工作日准备。"),
+        ("通讯录", None, "确认主持人、会议联系人及重要参会单位。", None),
+    ]),
+    ("020", "创建线上会议", "在视频会议系统中创建会议，并按参会范围选择合适的会议权限。", [
+        ("视频会议系统", None, "新建会议，填写主题与时间；涉及外部人员时启用等候室。", "会议主题请避免使用简称，方便参会人员识别。"),
+        ("视频会议系统", None, "设置主持人和联席主持人，并检查入会静音策略。", None),
+    ]),
+    ("030", "发送会议通知", "将准确的会议时间、入会方式和注意事项发送给参会人员。", [
+        ("协同办公系统", None, "选择参会人员并发送会议通知，正文包含会议主题、时间和入会方式。", None),
+        ("即时通讯", None, "对主持人及关键参会人进行单独提醒。", "不要在无关群聊中转发内部会议链接。"),
+    ]),
+    ("040", "会前联调检查", "会前检查声音、画面、共享和网络，重要会议建议安排双方联调。", [
+        ("视频会议系统", None, "进入测试会议，依次检查麦克风、扬声器、摄像头和屏幕共享。", None),
+        ("网络监测平台", None, "确认主会场网络稳定，无明显丢包或高时延告警。", "发现异常时优先切换有线网络，并联系网络值班人员。"),
+    ]),
+    ("050", "会议开始前确认", "提前进入会议室，准备共享材料，并确认主持人与参会人员可以正常入会。", [
+        ("视频会议系统", None, "提前 10 分钟入会，打开等候室并确认主持权限。", None),
+        ("本地文件", None, "打开需要共享的材料，关闭无关窗口和消息提醒。", "涉及敏感信息的文件不得通过会议共享。"),
+    ]),
 ]
 
 DRAFT_FLOWS = [
@@ -106,6 +131,22 @@ def _add_physical_steps(db: Session, *, flow: Flow) -> None:
             ))
 
 
+def _add_demo_steps(db: Session, *, flow: Flow) -> None:
+    for order_index, (code, name, task, guide) in enumerate(DEMO_STEPS):
+        step = Step(flow_id=flow.id, code=code, name=name, task=task, order_index=order_index)
+        db.add(step)
+        db.flush()
+        for guide_index, (system_name, url, action_text, note) in enumerate(guide, start=1):
+            db.add(GuideItem(
+                step_id=step.id,
+                order_index=guide_index,
+                system_name=system_name,
+                url=url,
+                action_text=action_text,
+                note=note,
+            ))
+
+
 def _create_m1_foundation(
     db: Session,
     *,
@@ -127,10 +168,11 @@ def _create_m1_foundation(
     db.add(flow)
     db.flush()
     _add_physical_steps(db, flow=flow)
-    db.add_all([
-        User(username=admin_username, password_hash=hash_password(admin_password), role="admin"),
-        User(username=viewer_username, password_hash=hash_password(viewer_password), role="viewer"),
-    ])
+    # 历史库可能已有账号但缺少物理机流程；账号也必须按用户名幂等创建。
+    if db.scalar(select(User.id).where(User.username == admin_username)) is None:
+        db.add(User(username=admin_username, password_hash=hash_password(admin_password), role="admin"))
+    if db.scalar(select(User.id).where(User.username == viewer_username)) is None:
+        db.add(User(username=viewer_username, password_hash=hash_password(viewer_password), role="viewer"))
     return flow
 
 
@@ -223,6 +265,23 @@ def seed_data(
                 domain_id=delivery_domain.id,
                 order_index=order_index,
             )
+    demo = db.scalar(select(Flow).where(Flow.slug == DEMO_FLOW_SLUG))
+    if demo is None:
+        demo = Flow(
+            slug=DEMO_FLOW_SLUG,
+            domain_id=domains["guided-experience"].id,
+            name="线上会议保障",
+            description="从需求确认、会议创建到会前检查的完整引导体验。",
+            status="published",
+            order_index=0,
+            updated_by="seed",
+        )
+        db.add(demo)
+        db.flush()
+        _add_demo_steps(db, flow=demo)
+        changed = True
+    else:
+        changed |= _sync(demo, domain_id=domains["guided-experience"].id, order_index=0)
     db.flush()
     return changed
 

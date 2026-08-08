@@ -168,8 +168,18 @@ export default function DomainFlowsPage({ user, onLogout }: { user: User; onLogo
                   <div className="min-w-0 flex-1">{card}</div>
                 )}
 
-                {isAdmin && (
+                {(published || isAdmin) && (
                   <div className="flex w-24 shrink-0 flex-col justify-center gap-2">
+                    {published && (
+                      <Link
+                        to={`/flows/${flow.id}/guide`}
+                        className="btn-primary rounded-md px-2 py-1.5 text-center text-xs"
+                        title="按步骤查看办理指引"
+                      >
+                        带我办理
+                      </Link>
+                    )}
+                    {isAdmin && (
                     <Link
                       to={`/flows/${flow.id}/edit`}
                       className="btn-ghost rounded-md px-2 py-1.5 text-center text-xs"
@@ -177,6 +187,7 @@ export default function DomainFlowsPage({ user, onLogout }: { user: User; onLogo
                     >
                       设计器
                     </Link>
+                    )}
                     {flow.status === "draft" && (
                       <button
                         type="button"

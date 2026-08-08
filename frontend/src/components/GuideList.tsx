@@ -3,6 +3,9 @@ import AuthenticatedImage from "./AuthenticatedImage";
 
 interface Props {
   guide: GuideItem[];
+  /** 序号起始值（1-based），用于「带我办理」只展示一条时显示全局序号 */
+  numberFrom?: number;
+  emptyHint?: string;
 }
 
 function safeHref(url: string | null): string | null {
@@ -18,11 +21,11 @@ function safeHref(url: string | null): string | null {
 }
 
 /** 系统操作指引：责任团队/人 + 系统链接 + 图示 + 动作 */
-export default function GuideList({ guide }: Props) {
+export default function GuideList({ guide, numberFrom = 1, emptyHint }: Props) {
   if (guide.length === 0) {
     return (
       <p className="mt-3 text-sm text-slate-500">
-        本环节暂无系统操作指引（可在流程设计器中补充责任人、图文与链接）。
+        {emptyHint ?? "本环节暂无系统操作指引（可在流程设计器中补充责任人、图文与链接）。"}
       </p>
     );
   }
@@ -31,11 +34,12 @@ export default function GuideList({ guide }: Props) {
       {guide.map((item, i) => {
         const href = safeHref(item.url);
         const imageHref = safeHref(item.image_path);
+        const number = numberFrom + i;
         return (
           <li key={item.id} className="flex gap-3">
             <div className="flex flex-col items-center">
               <span className="mono grid h-7 w-7 place-items-center rounded-full bg-csg-600 text-xs font-semibold text-white">
-                {i + 1}
+                {number}
               </span>
               {i < guide.length - 1 && <span className="my-1 w-px flex-1 bg-slate-200" />}
             </div>

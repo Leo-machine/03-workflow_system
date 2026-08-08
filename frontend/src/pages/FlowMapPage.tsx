@@ -72,11 +72,10 @@ export default function FlowMapPage({ user, onLogout }: { user: User; onLogout: 
       backTo={flow?.domain_id ? `/domains/${flow.domain_id}` : "/"}
       backLabel={flow?.domain_id ? "返回业务域" : "平台组业务导航"}
       actions={
-        isAdmin ? (
-          <Link to={`/flows/${id}/edit`} className="btn-ghost">
-            流程设计器
-          </Link>
-        ) : undefined
+        <>
+          {flow?.steps.length ? <Link to={`/flows/${id}/guide`} className="btn-primary">带我办理</Link> : null}
+          {isAdmin ? <Link to={`/flows/${id}/edit`} className="btn-ghost">流程设计器</Link> : null}
+        </>
       }
     >
       {isAdmin && (
