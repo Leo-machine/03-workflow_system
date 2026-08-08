@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.deps import get_current_user, get_db, require_admin
-from app.models import BusinessDomain, ChangeLog, Person, StepPerson, Unit, User
+from app.models import BusinessDomain, ChangeLog, GuideItem, GuideItemPerson, Person, StepPerson, Unit, User
 from app.schemas import (
     PersonBulkImportIn,
     PersonBulkImportResult,
@@ -111,6 +111,26 @@ def update_person(
     if name != person.name:
         changes.append(("name", person.name, name))
     if body.unit_id != person.unit_id:
+        # 已挂在指引上的责任人：调单位不得破坏「人必须属于所选责任团队」
+        bound = db.execute(
+            select(GuideItem.id, GuideItem.unit_id, GuideItem.system_name)
+            .join(GuideItemPerson, GuideItemPerson.guide_item_id == GuideItem.id)
+            .where(GuideItemPerson.person_id == person_id)
+        ).all()
+        conflicts = [
+            row for row in bound
+            if row.unit_id is not None and row.unit_id != body.unit_id
+        ]
+        if conflicts:
+            names = "、".join((row.system_name or f"#{row.id}") for row in conflicts[:3])
+            more = f" 等 {len(conflicts)} 处" if len(conflicts) > 3 else ""
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"该人员仍被操作指引引用为责任人（{names}{more}），"
+                    "请先在流程设计器中调整指引责任团队/人，再修改所属单位"
+                ),
+            )
         old_unit = person.unit.name if person.unit else None
         new_unit = db.get(Unit, body.unit_id).name if body.unit_id else None
         if old_unit != new_unit:
@@ -155,9 +175,24 @@ def delete_person(
     admin: User = Depends(require_admin),
 ):
     person = _get_person(db, person_id)
-    refs = db.scalar(select(func.count(StepPerson.step_id)).where(StepPerson.person_id == person_id))
+    # 新模型会同时写 guide_item_persons 与回写的 step_persons；去重计数避免提示翻倍。
+    # 旧数据可能只有 step_persons：此时仍按环节引用拦截。
+    guide_refs = db.scalar(
+        select(func.count(GuideItemPerson.guide_item_id)).where(
+            GuideItemPerson.person_id == person_id
+        )
+    ) or 0
+    if guide_refs:
+        refs = guide_refs
+        detail = f"该人员仍被 {refs} 条操作指引引用，请先在流程设计器中移除"
+    else:
+        step_refs = db.scalar(
+            select(func.count(StepPerson.step_id)).where(StepPerson.person_id == person_id)
+        ) or 0
+        refs = step_refs
+        detail = f"该人员仍被 {refs} 个环节引用，请先在流程设计器中移除"
     if refs:
-        raise HTTPException(status_code=422, detail=f"该人员仍被 {refs} 个环节引用，请先在环节中移除")
+        raise HTTPException(status_code=422, detail=detail)
     _add_ledger_log(db, person=person, field="delete", admin=admin, old_name=person.name)
     db.delete(person)
     db.commit()

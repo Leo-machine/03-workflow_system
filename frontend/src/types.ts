@@ -68,6 +68,8 @@ export interface GuideItem {
   image_path: string | null;
   action_text: string;
   note: string | null;
+  unit: Unit | null;
+  persons: Person[];
 }
 
 export interface Step {
@@ -76,7 +78,8 @@ export interface Step {
   name: string;
   task: string;
   order_index: number;
-  persons: Person[]; // 环节内嵌人员（多选 = 并行），实时解析台账
+  image_path: string | null;
+  persons: Person[]; // 由指引责任人聚合，供流程条展示
   guide: GuideItem[];
 }
 
@@ -96,6 +99,8 @@ export interface GuideItemDraft {
   url: string;
   image_path: string | null;
   note: string;
+  unit_id: number | null;
+  person_ids: number[];
 }
 
 export interface StepDefinitionDraft {
@@ -103,7 +108,6 @@ export interface StepDefinitionDraft {
   code: string;
   name: string;
   task: string;
-  person_ids: number[]; // 环节选用的人员（台账 id）
   guide: GuideItemDraft[];
 }
 

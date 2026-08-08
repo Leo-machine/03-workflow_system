@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
 import PageShell from "../components/PageShell";
+import { useDialog } from "../components/DialogProvider";
 import { useRefetchOnFocus } from "../hooks/useRefetchOnFocus";
 import type { BusinessDomainDetail, DomainFlow, FlowMutationResult, User } from "../types";
 
@@ -9,6 +10,7 @@ export default function DomainFlowsPage({ user, onLogout }: { user: User; onLogo
   const { id } = useParams();
   const navigate = useNavigate();
   const isAdmin = user.role === "admin";
+  const dialog = useDialog();
   const [domain, setDomain] = useState<BusinessDomainDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
@@ -40,7 +42,7 @@ export default function DomainFlowsPage({ user, onLogout }: { user: User; onLogo
 
   async function createFlow() {
     if (!id || creating) return;
-    const name = window.prompt("新流程名称", "新建流程");
+    const name = await dialog.prompt("请输入便于识别的流程名称，创建后可继续完善环节与操作指引。", "新建流程", { title: "新建流程" });
     if (!name || !name.trim()) return;
     setCreating(true);
     try {
@@ -56,7 +58,7 @@ export default function DomainFlowsPage({ user, onLogout }: { user: User; onLogo
   }
 
   async function deleteFlow(flow: DomainFlow) {
-    if (!window.confirm(`确认删除 draft 流程「${flow.name}」？此操作不可恢复。`)) return;
+    if (!await dialog.confirm(`确认删除 draft 流程「${flow.name}」？删除后无法恢复。`, { title: "删除流程", danger: true })) return;
     setDeletingId(flow.id);
     try {
       await api(`/flows/${flow.id}`, { method: "DELETE" });

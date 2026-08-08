@@ -6,12 +6,20 @@
 ## 一键启动（验收路径）
 
 ```bash
-cp .env.example .env        # 按需修改密码与 JWT_SECRET（迁内网前必改）
+cp .env.example .env        # 按需修改密码、JWT_SECRET，以及端口（见下方）
 docker compose up --build
 ```
 
-- 打开 http://localhost:8080 （前端，nginx 反代 /api 到后端）
-- 后端 API 文档：http://localhost:8000/docs
+默认对外端口（可在 `.env` 中修改，避免与本机其他系统冲突）：
+
+| 服务 | 环境变量 | 默认 |
+|------|----------|------|
+| 前端 | `WEB_PORT` | **8081** → http://localhost:8081 |
+| 后端 | `BACKEND_PORT` | **8001** → http://localhost:8001/docs |
+| Postgres | `POSTGRES_PORT` | **5433** |
+
+- 打开 http://localhost:8081 （前端，nginx 反代 /api 到后端）
+- 后端 API 文档：http://localhost:8001/docs
 - 初始账号：`admin / admin123`（管理员，可进管理模式改人）、`viewer / viewer123`（只读）
 - 首次启动后端自动执行 `alembic upgrade head` 建表 + `python -m app.seed` 灌入种子流程（幂等，非空库跳过）
 
@@ -31,9 +39,9 @@ pytest -m "not pg"
 # 测试：PG 集成组（testcontainers 起真实 Postgres，需 Docker 运行）
 pytest -m pg
 
-# 起服务（默认连 localhost:5432 的 PG，可用 DATABASE_URL 覆盖）
+# 起服务（默认连 localhost:5433 的 PG——与 docker-compose 宿主机映射一致；可用 DATABASE_URL 覆盖）
 alembic upgrade head && python -m app.seed
-uvicorn app.main:app --reload
+uvicorn app.main:app --reload --port 8001
 ```
 
 ### 前端
@@ -41,7 +49,7 @@ uvicorn app.main:app --reload
 ```bash
 cd frontend
 npm ci          # 或首次 npm install 生成 lock
-npm run dev     # vite dev，/api 代理到 localhost:8000
+npm run dev     # vite dev，默认 5174；/api 代理到 localhost:8001
 npm run build   # tsc 类型检查 + 自包含产物（无外部 CDN/字体）
 ```
 

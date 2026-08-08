@@ -1,6 +1,7 @@
 // TODO(4A/SSO): token 存 localStorage 存在 XSS 泄露风险；
 // 接内网 4A/SSO 时改为 httpOnly cookie 或直接走 SSO 票据机制。
 const TOKEN_KEY = "flowmap_token";
+export const AUTH_EXPIRED_EVENT = "flowmap:auth-expired";
 
 export const getToken = (): string | null => localStorage.getItem(TOKEN_KEY);
 export const setToken = (token: string): void => localStorage.setItem(TOKEN_KEY, token);
@@ -32,7 +33,8 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   });
 
   if (res.status === 401) {
-    clearToken(); // token 失效：强制回登录页
+    clearToken();
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
     throw new ApiError(401, "未登录或登录已过期");
   }
   if (!res.ok) {
@@ -52,4 +54,50 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   const text = await res.text();
   if (!text) return undefined as T;
   return JSON.parse(text) as T;
+}
+
+/** multipart 上传（不设 Content-Type，由浏览器带 boundary） */
+export async function uploadImage(file: File): Promise<{ path: string }> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+
+  const body = new FormData();
+  body.append("file", file);
+
+  const res = await fetch("/api/uploads/images", { method: "POST", headers, body });
+  if (res.status === 401) {
+    clearToken();
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+    throw new ApiError(401, "未登录或登录已过期");
+  }
+  if (!res.ok) {
+    let detail = res.statusText;
+    try {
+      const data: unknown = await res.json();
+      if (typeof data === "object" && data !== null && "detail" in data) {
+        const d = (data as { detail: unknown }).detail;
+        detail = typeof d === "string" ? d : JSON.stringify(d);
+      }
+    } catch {
+      // keep statusText
+    }
+    throw new ApiError(res.status, detail);
+  }
+  return (await res.json()) as { path: string };
+}
+
+/** 使用 Bearer token 读取受保护图片，并返回可供 img/a 使用的临时 blob URL。 */
+export async function fetchMediaBlobUrl(path: string): Promise<string> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(path, { headers });
+  if (res.status === 401) {
+    clearToken();
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+    throw new ApiError(401, "未登录或登录已过期");
+  }
+  if (!res.ok) throw new ApiError(res.status, "图片加载失败");
+  return URL.createObjectURL(await res.blob());
 }

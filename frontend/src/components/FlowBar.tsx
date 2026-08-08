@@ -10,7 +10,7 @@ interface Props {
 /** 顶部流程线：环节节点 + 连接线；多人（并行）环节带角标 */
 export default function FlowBar({ steps, selected, onSelect }: Props) {
   return (
-    <div className="flex items-stretch overflow-x-auto pb-2">
+    <div className="flex items-stretch overflow-x-auto px-1 pb-2 pt-1">
       {steps.map((st, i) => {
         const isSel = i === selected;
         const energized = i <= selected;
@@ -19,35 +19,37 @@ export default function FlowBar({ steps, selected, onSelect }: Props) {
         return (
           <Fragment key={st.id}>
             {i > 0 && (
-              <div className="flex items-center px-1 sm:px-2 pt-5">
+              <div className="flex items-center px-1 pt-5 sm:px-2">
                 <div
                   className={
-                    "h-0.5 w-7 sm:w-12 rounded-full " +
-                    (energized ? "bg-csg-500" : "bg-slate-200")
+                    "h-[3px] w-7 rounded-full sm:w-12 " +
+                    (energized
+                      ? "bg-gradient-to-r from-csg-400 to-cyan-500 shadow-[0_0_8px_rgba(7,152,141,0.35)]"
+                      : "bg-slate-200")
                   }
                 />
               </div>
             )}
-            <button onClick={() => onSelect(i)} className="flex flex-col items-center min-w-[100px] group">
+            <button onClick={() => onSelect(i)} className="group flex min-w-[100px] flex-col items-center">
               <div
                 className={
-                  "mono relative grid place-items-center h-11 w-11 rounded-full text-xs font-semibold transition " +
+                  "mono relative grid h-11 w-11 place-items-center rounded-xl text-xs font-bold transition " +
                   (isSel
-                    ? "bg-csg-600 text-white ring-4 ring-csg-100"
-                    : "bg-white text-slate-500 ring-2 ring-slate-200 group-hover:ring-csg-300")
+                    ? "rotate-45 bg-gradient-to-br from-csg-500 to-cyan-700 text-white shadow-[0_8px_22px_rgba(0,122,114,0.28)] ring-4 ring-csg-100"
+                    : "rotate-45 bg-white text-slate-500 ring-1 ring-slate-200 group-hover:bg-csg-50 group-hover:ring-csg-300")
                 }
               >
-                {st.code}
+                <span className="-rotate-45">{st.code}</span>
                 {parallel && (
-                  <span className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-amber-400 text-white text-[10px] grid place-items-center">
+                  <span className="absolute -right-2 -top-2 grid h-4 w-4 -rotate-45 place-items-center rounded-full bg-amber-400 text-[10px] text-white shadow-sm">
                     {st.persons.length}
                   </span>
                 )}
               </div>
               <div
                 className={
-                  "mt-2 text-xs font-medium text-center max-w-[100px] " +
-                  (isSel ? "text-slate-900" : "text-slate-500")
+                  "mt-3 max-w-[100px] text-center text-xs font-semibold " +
+                  (isSel ? "text-csg-800" : "text-slate-500")
                 }
               >
                 {st.name}

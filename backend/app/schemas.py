@@ -133,6 +133,8 @@ class GuideItemOut(BaseModel):
     image_path: str | None
     action_text: str
     note: str | None
+    unit: UnitOut | None = None  # 责任团队（台账）
+    persons: list[PersonOut] = []  # 责任人（受团队约束，可多选）
 
 
 class StepOut(BaseModel):
@@ -141,7 +143,8 @@ class StepOut(BaseModel):
     name: str
     task: str
     order_index: int
-    persons: list[PersonOut]  # 环节内嵌人员（多选 = 并行），实时解析台账
+    image_path: str | None = None  # 兼容旧字段；新 UI 不再维护
+    persons: list[PersonOut] = []  # 由各指引责任人聚合，供流程条并行角标
     guide: list[GuideItemOut]
 
 
@@ -173,14 +176,18 @@ class GuideItemIn(BaseModel):
     url: str | None = None
     image_path: str | None = None
     note: str | None = None
+    unit_id: int | None = None  # 责任团队
+    person_ids: list[int] = []  # 责任人（须属于所选团队）
 
 
 class StepDefinitionIn(BaseModel):
     code: str
     name: str
     task: str = ""
-    person_ids: list[int] = []  # 环节选用的人员（台账 id）
     guide: list[GuideItemIn] = []
+    # 以下字段兼容旧客户端，服务端忽略，责任与图示以 guide 为准
+    image_path: str | None = None
+    person_ids: list[int] = []
 
 
 class FlowDefinitionIn(BaseModel):

@@ -14,7 +14,7 @@ interface Props {
   wide?: boolean;
 }
 
-/** 全站统一顶栏：白底 + 南网蓝品牌条 */
+/** 全站统一顶栏：白底南网蓝 + 数字化运行状态标识 */
 export default function PageShell({
   user,
   onLogout,
@@ -30,31 +30,37 @@ export default function PageShell({
 
   return (
     <div className="page-canvas">
-      <div className={"mx-auto px-4 py-6 sm:px-6 " + (wide ? "max-w-6xl" : "max-w-5xl")}>
-        <header className="panel overflow-hidden">
-          <div className="h-1.5 bg-csg-600" />
-          <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4 sm:px-6">
+      <div className={"mx-auto px-4 py-5 sm:px-6 sm:py-7 " + (wide ? "max-w-6xl" : "max-w-5xl")}>
+        <header className="relative overflow-hidden rounded-2xl border border-csg-100 bg-white text-slate-900 shadow-[0_16px_42px_rgba(0,71,133,0.10)]">
+          <div className="pointer-events-none absolute -right-20 -top-28 h-64 w-64 rounded-full border border-csg-100/70" />
+          <div className="pointer-events-none absolute -right-4 -top-12 h-36 w-36 rounded-full border border-csg-200/70" />
+          <div className="h-1 bg-gradient-to-r from-csg-700 via-csg-500 to-cyan-400" />
+          <div className="flex flex-wrap items-start justify-between gap-4 px-5 py-4 sm:px-6 sm:py-5">
             <div className="min-w-0">
+              <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-csg-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.65)]" />
+                CSG · DIGITAL OPERATIONS
+              </div>
               {backTo && (
-                <Link to={backTo} className="text-xs font-medium text-csg-600 hover:text-csg-800">
+                <Link to={backTo} className="text-xs font-medium text-csg-600 transition hover:text-csg-800">
                   ← {backLabel}
                 </Link>
               )}
               <div className={"flex items-center gap-2 " + (backTo ? "mt-2" : "")}>
-                <span className="inline-block h-5 w-1.5 rounded-sm bg-csg-600" />
-                <h1 className="truncate text-lg font-semibold tracking-tight text-slate-900 sm:text-xl">
+                <span className="inline-block h-5 w-1 rounded-full bg-csg-600 shadow-[0_0_10px_rgba(35,122,185,0.35)]" />
+                <h1 className="truncate text-lg font-semibold tracking-wide text-slate-900 sm:text-xl">
                   {title}
                 </h1>
               </div>
-              {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
+              {subtitle && <p className="mt-1.5 text-sm text-slate-500">{subtitle}</p>}
             </div>
             <div className="flex flex-wrap items-center gap-2">
               {/* 页面操作区（流程设计器/管理模式等业务动作） */}
               {actions}
               {actions && <span className="mx-1 hidden h-5 w-px bg-slate-200 sm:block" />}
               {/* 用户会话区：独立胶囊，与操作区隔开 */}
-              <div className="flex items-center gap-2 rounded-full bg-slate-50 py-1 pl-1 pr-2.5 ring-1 ring-slate-200">
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-csg-600 text-xs font-semibold text-white">
+              <div className="flex items-center gap-2 rounded-full bg-csg-50 py-1 pl-1 pr-2.5 ring-1 ring-csg-100">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-csg-600 text-xs font-bold text-white">
                   {user.username.slice(0, 1).toUpperCase()}
                 </span>
                 <span className="text-xs text-slate-500">

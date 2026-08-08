@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import { api, clearToken, getToken, setToken } from "../api/client";
+import { AUTH_EXPIRED_EVENT, api, clearToken, getToken, setToken } from "../api/client";
 import type { LoginResponse, User } from "../types";
 
 interface AuthState {
@@ -32,6 +32,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then(setUser)
       .catch(() => clearToken())
       .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const expire = () => setUser(null);
+    window.addEventListener(AUTH_EXPIRED_EVENT, expire);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, expire);
   }, []);
 
   const login = useCallback(async (username: string, password: string) => {

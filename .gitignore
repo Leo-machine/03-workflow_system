@@ -13,5 +13,9 @@ __pycache__/
 node_modules/
 frontend/dist/
 
+# 上传图示
+data/
+backend/data/
+
 # 系统
 .DS_Store

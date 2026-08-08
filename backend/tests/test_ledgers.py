@@ -98,6 +98,65 @@ def test_person_delete_guarded_by_step_refs(client, admin_token, ledger):
     assert r.status_code == 422
 
 
+def test_person_cannot_change_unit_when_bound_to_guide(client, admin_token, ledger):
+    """台账调单位不得破坏指引「人必须属于责任团队」。"""
+    headers = bearer(admin_token)
+    p1 = ledger["person_ids"][0]
+    unit_id = ledger["unit_id"]
+    other_unit = ledger["unit_ids"][1]
+    domains = client.get("/api/domains", headers=headers).json()
+    delivery = next(d for d in domains if d["code"] == "it-resource-delivery")
+    flow_id = client.post(
+        "/api/flows",
+        json={"domain_id": delivery["id"], "name": "单位约束流程"},
+        headers=headers,
+    ).json()["flow"]["id"]
+    assert client.put(
+        f"/api/flows/{flow_id}/definition",
+        json={
+            "steps": [
+                {
+                    "code": "010",
+                    "name": "申请",
+                    "guide": [
+                        {
+                            "system_name": "云盾",
+                            "action_text": "填单",
+                            "unit_id": unit_id,
+                            "person_ids": [p1],
+                        }
+                    ],
+                }
+            ]
+        },
+        headers=headers,
+    ).status_code == 200
+
+    person = client.get("/api/persons", headers=headers).json()
+    p = next(x for x in person if x["id"] == p1)
+    r = client.put(
+        f"/api/persons/{p1}",
+        json={
+            "name": p["name"],
+            "unit_id": other_unit,
+            "title": p["title"],
+            "contact": p["contact"],
+            "active": p["active"],
+            "domain_ids": [d["id"] for d in p["domains"]],
+        },
+        headers=headers,
+    )
+    assert r.status_code == 422
+    assert "责任团队" in r.json()["detail"] or "操作指引" in r.json()["detail"]
+
+    # 删除计数按指引条数（不应因同步的 step_persons 翻倍）
+    d = client.delete(f"/api/persons/{p1}", headers=headers)
+    assert d.status_code == 422
+    assert "1 条" in d.json()["detail"]
+
+    client.delete(f"/api/flows/{flow_id}", headers=headers)
+
+
 def test_person_mutations_require_admin(client, viewer_token):
     headers = bearer(viewer_token)
     assert client.post("/api/persons", json={"name": "x"}, headers=headers).status_code == 403

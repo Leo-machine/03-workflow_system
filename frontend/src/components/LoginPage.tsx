@@ -29,14 +29,19 @@ export default function LoginPage() {
 
   return (
     <div className="page-canvas grid place-items-center p-4">
-      <div className="panel w-full max-w-sm overflow-hidden">
-        <div className="h-1.5 bg-csg-600" />
+      <div className="panel relative w-full max-w-sm overflow-hidden">
+        <div className="h-1 bg-gradient-to-r from-csg-400 via-cyan-400 to-emerald-400" />
+        <div className="pointer-events-none absolute -right-16 -top-16 h-36 w-36 rounded-full border border-csg-100" />
         <div className="p-6 sm:p-8">
+          <div className="mb-5 inline-flex items-center gap-2 rounded-full bg-csg-50 px-3 py-1 text-[10px] font-bold tracking-[0.16em] text-csg-700 ring-1 ring-csg-100">
+            <span className="h-1.5 w-1.5 rounded-full bg-csg-500 shadow-[0_0_8px_rgba(7,152,141,0.7)]" />
+            CSG DIGITAL OPERATIONS
+          </div>
           <div className="flex items-center gap-2">
-            <span className="inline-block h-5 w-1.5 rounded-sm bg-csg-600" />
+            <span className="inline-block h-5 w-1 rounded-full bg-csg-500" />
             <h1 className="text-lg font-semibold tracking-tight text-slate-900">数智运营中心平台运维团队平台组业务服务系统</h1>
           </div>
-          <p className="mt-1 text-sm text-slate-500">归谁办 · 做什么交什么 · 在哪些系统怎么操作</p>
+          <p className="mt-2 text-sm leading-relaxed text-slate-500">归谁办 · 做什么交什么 · 在哪些系统怎么操作</p>
 
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <div>

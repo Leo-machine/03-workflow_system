@@ -4,7 +4,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.deps import get_current_user, get_db, require_admin
-from app.models import ChangeLog, Person, Unit, User
+from app.models import ChangeLog, GuideItem, Person, Unit, User
 from app.schemas import UnitOut, UnitUpsertIn
 
 router = APIRouter(tags=["units"])
@@ -97,6 +97,12 @@ def delete_unit(
     refs = db.scalar(select(func.count(Person.id)).where(Person.unit_id == unit_id))
     if refs:
         raise HTTPException(status_code=422, detail=f"该单位下仍有 {refs} 名人员，请先调整人员归属")
+    guide_refs = db.scalar(select(func.count(GuideItem.id)).where(GuideItem.unit_id == unit_id))
+    if guide_refs:
+        raise HTTPException(
+            status_code=422,
+            detail=f"该单位仍被 {guide_refs} 条操作指引引用为责任团队，请先在指引中调整",
+        )
     _add_unit_log(db, unit=unit, field="delete", admin=admin, old_name=unit.name)
     db.delete(unit)
     db.commit()

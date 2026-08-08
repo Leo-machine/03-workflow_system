@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useAuth } from "./auth/AuthContext";
 import LoginPage from "./components/LoginPage";
+import DialogProvider from "./components/DialogProvider";
 import RequireAdmin from "./components/RequireAdmin";
 import DomainFlowsPage from "./pages/DomainFlowsPage";
 import DomainNavPage from "./pages/DomainNavPage";
@@ -25,7 +26,7 @@ export default function App() {
     return <LoginPage />;
   }
   return (
-    <Routes>
+    <DialogProvider><Routes>
       <Route path="/" element={<DomainNavPage user={user} onLogout={logout} />} />
       <Route path="/domains/:id" element={<DomainFlowsPage user={user} onLogout={logout} />} />
       <Route
@@ -50,6 +51,6 @@ export default function App() {
         }
       />
       <Route path="*" element={<Navigate to="/" replace />} />
-    </Routes>
+    </Routes></DialogProvider>
   );
 }

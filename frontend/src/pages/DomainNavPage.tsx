@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api/client";
 import PageShell from "../components/PageShell";
+import Toast from "../components/Toast";
+import { useDialog } from "../components/DialogProvider";
 import { useRefetchOnFocus } from "../hooks/useRefetchOnFocus";
 import type { BusinessDomain, User } from "../types";
 
@@ -32,6 +34,7 @@ const EMPTY_FORM: DomainForm = { code: "", name: "", description: "", icon: "ser
 
 export default function DomainNavPage({ user, onLogout }: { user: User; onLogout: () => void }) {
   const isAdmin = user.role === "admin";
+  const dialog = useDialog();
   const [domains, setDomains] = useState<BusinessDomain[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
@@ -109,7 +112,7 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
   }
 
   async function deleteDomain(domain: BusinessDomain) {
-    if (!window.confirm(`确认删除业务域「${domain.name}」？其下仍有流程时无法删除。`)) return;
+    if (!await dialog.confirm(`确认删除业务域「${domain.name}」？其下仍有流程时系统会阻止删除。`, { title: "删除业务域", danger: true })) return;
     try {
       await api(`/domains/${domain.id}`, { method: "DELETE" });
       setToast(`已删除业务域「${domain.name}」`);
@@ -143,7 +146,7 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
       )}
 
-      <section className="relative mt-8">
+      <section className="relative mt-10">
         {/* 单线图母线 */}
         <div className="pointer-events-none absolute left-4 right-4 top-8 h-px bg-csg-200 sm:left-6 sm:right-6" />
         <div className="pointer-events-none absolute left-4 right-4 top-[30px] h-[3px] bg-gradient-to-r from-csg-100 via-csg-400 to-csg-100 opacity-70 sm:left-6 sm:right-6" />
@@ -153,18 +156,19 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
             /* 业务域全部已投运：一律可进入（管理员在内设计/发布流程） */
             <div key={domain.id} className="flex flex-col">
               <Link to={`/domains/${domain.id}`} className="block flex-1">
-                <article className="relative h-full border border-csg-200 bg-white p-5 pt-12 shadow-soft transition hover:-translate-y-0.5 hover:border-csg-500">
+                <article className="group relative h-full rounded-2xl border border-white bg-white/95 p-5 pt-12 shadow-soft transition duration-300 hover:-translate-y-1 hover:border-csg-300 hover:shadow-[0_20px_42px_rgba(0,71,133,0.13)]">
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1 bg-gradient-to-r from-csg-400 via-cyan-400 to-emerald-400 opacity-0 transition group-hover:opacity-100" />
                   {/* 断路器节点 */}
-                  <div className="absolute left-5 top-0 grid h-14 w-14 -translate-y-1/2 place-items-center rounded-full border-[3px] border-white bg-csg-600 font-mono text-xl text-white shadow-sm">
+                  <div className="absolute left-5 top-0 z-10 grid h-14 w-14 -translate-y-1/2 place-items-center rounded-2xl border-[3px] border-white bg-gradient-to-br from-csg-500 to-csg-800 font-mono text-xl text-white shadow-[0_8px_20px_rgba(0,71,133,0.25)] transition group-hover:scale-105">
                     {ICONS[domain.icon] ?? "○"}
                   </div>
 
                   <div className="absolute right-5 top-5 flex items-center gap-2 text-xs">
-                    <span className="h-2 w-2 rounded-full bg-csg-600 ring-4 ring-csg-100" />
+                    <span className="h-2 w-2 rounded-full bg-emerald-500 ring-4 ring-emerald-50" />
                     <span className="font-medium text-csg-700">已投运</span>
                   </div>
 
-                  <h2 className="text-lg font-semibold text-slate-900">{domain.name}</h2>
+                  <h2 className="text-lg font-semibold tracking-wide text-slate-900 transition group-hover:text-csg-800">{domain.name}</h2>
                   <p className="mt-2 min-h-10 text-sm leading-relaxed text-slate-500">{domain.description}</p>
                   <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-3 text-xs">
                     <span className="mono text-slate-400">
@@ -289,11 +293,7 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
         </div>
       )}
 
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-md bg-csg-800 px-5 py-2.5 text-sm text-white shadow-lg">
-          {toast}
-        </div>
-      )}
+      {toast && <Toast message={toast} />}
     </PageShell>
   );
 }

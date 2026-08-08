@@ -7,10 +7,13 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    database_url: str = "postgresql+psycopg://flow:flow@localhost:5432/flowmap"
+    database_url: str = "postgresql+psycopg://flow:flow@localhost:5433/flowmap"
 
     jwt_secret: str = "change-me-to-a-long-random-string"  # ⚠️ 迁内网前必改
     jwt_expire_minutes: int = 720  # 12h
+
+    # 图示上传目录（相对路径相对进程 cwd；docker 挂 volume 持久化）
+    upload_dir: str = "data/uploads"
 
     # 初始账号仅 seed 时生效
     admin_username: str = "admin"
@@ -18,7 +21,7 @@ class Settings(BaseSettings):
     viewer_username: str = "viewer"
     viewer_password: str = "viewer123"  # ⚠️ 迁内网前必改
 
-    cors_origins: str = "http://localhost:5173,http://localhost:8080"
+    cors_origins: str = "http://localhost:5174,http://localhost:8081"
 
     @property
     def cors_origin_list(self) -> list[str]:

@@ -64,11 +64,20 @@ class PersonDomain(Base):
 
 
 class StepPerson(Base):
-    """环节↔人员多对多：人员内嵌在环节中；一个环节多人即并行。"""
+    """环节↔人员多对多（兼容旧数据；新定义以 guide_item_persons 为准，保存时回写聚合）。"""
 
     __tablename__ = "step_persons"
 
     step_id: Mapped[int] = mapped_column(ForeignKey("steps.id"), primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"), primary_key=True)
+
+
+class GuideItemPerson(Base):
+    """指引条目↔责任人：先选团队再选人，人选受团队约束。"""
+
+    __tablename__ = "guide_item_persons"
+
+    guide_item_id: Mapped[int] = mapped_column(ForeignKey("guide_items.id"), primary_key=True)
     person_id: Mapped[int] = mapped_column(ForeignKey("persons.id"), primary_key=True)
 
 
@@ -121,6 +130,7 @@ class Step(Base):
     name: Mapped[str] = mapped_column(String(100))
     task: Mapped[str] = mapped_column(Text, default="")
     order_index: Mapped[int] = mapped_column(Integer)
+    image_path: Mapped[str | None] = mapped_column(String(300))  # 环节操作图示，库里只记路径
 
     flow: Mapped[Flow] = relationship(back_populates="steps")
     persons: Mapped[list[Person]] = relationship(
@@ -142,9 +152,15 @@ class GuideItem(Base):
     image_path: Mapped[str | None] = mapped_column(String(300))  # 图示存磁盘，库里只记路径
     action_text: Mapped[str] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)  # 依据/注意
+    unit_id: Mapped[int | None] = mapped_column(
+        ForeignKey("units.id", ondelete="RESTRICT"), index=True
+    )  # 责任团队（台账 units）
 
     step: Mapped[Step] = relationship(back_populates="guide_items")
-
+    unit: Mapped["Unit | None"] = relationship()
+    persons: Mapped[list[Person]] = relationship(
+        secondary=GuideItemPerson.__table__, order_by=Person.id
+    )
 
 class ChangeLog(Base):
     """append-only 变更留痕：只插不改不删。

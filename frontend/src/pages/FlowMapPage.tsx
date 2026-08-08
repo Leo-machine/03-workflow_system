@@ -3,7 +3,6 @@ import { Link, useParams } from "react-router-dom";
 import { ApiError, api } from "../api/client";
 import ChangeLogPanel from "../components/ChangeLogPanel";
 import FlowBar from "../components/FlowBar";
-import GuideList from "../components/GuideList";
 import PageShell from "../components/PageShell";
 import StepDetail from "../components/StepDetail";
 import { useRefetchOnFocus } from "../hooks/useRefetchOnFocus";
@@ -24,17 +23,22 @@ export default function FlowMapPage({ user, onLogout }: { user: User; onLogout: 
     async (resetSelection = true) => {
       if (!id) return;
       const gen = ++reloadGen.current;
-      const detail = await api<FlowDetail>(`/flows/${id}`);
-      if (gen !== reloadGen.current) return; // 丢弃过期响应
-      setFlow(detail);
-      setLoadError(null);
-      if (resetSelection) {
-        setSelected(0);
-      } else {
-        setSelected((prev) => {
-          if (detail.steps.length === 0) return 0;
-          return Math.min(prev, detail.steps.length - 1);
-        });
+      try {
+        const detail = await api<FlowDetail>(`/flows/${id}`);
+        if (gen !== reloadGen.current) return; // 丢弃过期成功响应
+        setFlow(detail);
+        setLoadError(null);
+        if (resetSelection) {
+          setSelected(0);
+        } else {
+          setSelected((prev) => {
+            if (detail.steps.length === 0) return 0;
+            return Math.min(prev, detail.steps.length - 1);
+          });
+        }
+      } catch (err) {
+        if (gen !== reloadGen.current) return; // 丢弃过期失败，避免盖住新页
+        throw err;
       }
     },
     [id]
@@ -110,16 +114,6 @@ export default function FlowMapPage({ user, onLogout }: { user: User; onLogout: 
         <>
           <div className="panel p-5 sm:p-6">
             <FlowBar steps={flow.steps} selected={selected} onSelect={setSelected} />
-          </div>
-
-          {/* 操作指南横栏：当前环节的系统操作指引（链接、依据） */}
-          <div className="panel mt-5 px-5 py-4 sm:px-6">
-            <div className="flex items-center gap-2">
-              <span className="inline-block h-4 w-1 rounded-sm bg-csg-600" />
-              <h2 className="text-sm font-semibold text-slate-800">操作指南</h2>
-              <span className="text-xs text-slate-400">归谁办 · 做什么、交什么 · 在哪些系统怎么操作（附带链接）。</span>
-            </div>
-            <GuideList guide={step.guide} />
           </div>
 
           <StepDetail step={step} />

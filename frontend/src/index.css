@@ -4,10 +4,10 @@
 
 /* 字体用系统栈：零外部请求，满足内网自包含约束 */
 :root {
-  --csg-blue: #003b8e;
-  --csg-blue-soft: #f0f5fb;
-  --page-bg: #ffffff;
-  --ink: #1e293b;
+  --csg-blue: #075fa5;
+  --csg-blue-soft: #f1f7fd;
+  --page-bg: #f6f9fc;
+  --ink: #172b3d;
   --muted: #64748b;
 }
 
@@ -16,34 +16,47 @@ body {
   color: var(--ink);
   background-color: var(--page-bg);
   font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", -apple-system, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 .mono {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
-/* 极淡电力母线底纹：白底上的浅蓝网格，不抢内容 */
+/* 数字电网底纹：白底、南网蓝坐标网格与极淡青色状态光晕 */
 .page-canvas {
   min-height: 100vh;
-  background-color: #ffffff;
+  background-color: var(--page-bg);
   background-image:
-    linear-gradient(rgba(0, 59, 142, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 59, 142, 0.035) 1px, transparent 1px);
-  background-size: 48px 48px;
-  background-position: -1px -1px;
+    radial-gradient(circle at 12% -8%, rgba(35, 122, 185, 0.11), transparent 34rem),
+    radial-gradient(circle at 92% 8%, rgba(34, 211, 238, 0.07), transparent 30rem),
+    linear-gradient(rgba(7, 95, 165, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(7, 95, 165, 0.03) 1px, transparent 1px);
+  background-size: auto, auto, 40px 40px, 40px 40px;
+  background-position: center, center, -1px -1px, -1px -1px;
 }
 
 @layer components {
   .btn-primary {
-    @apply rounded-md bg-csg-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-csg-700 disabled:opacity-60;
+    @apply rounded-lg bg-csg-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-px hover:bg-csg-700 hover:shadow-md disabled:translate-y-0 disabled:opacity-60;
   }
   .btn-ghost {
-    @apply rounded-md border border-slate-200 bg-white px-3 py-1.5 text-sm text-slate-600 transition hover:border-csg-300 hover:text-csg-700;
+    @apply rounded-lg border border-csg-100 bg-white/90 px-3 py-1.5 text-sm font-medium text-slate-600 shadow-sm transition hover:border-csg-300 hover:bg-csg-50 hover:text-csg-700;
   }
   .panel {
-    @apply rounded-xl border border-slate-200 bg-white shadow-soft;
+    @apply rounded-2xl border border-white/80 bg-white/95 shadow-soft backdrop-blur-sm;
   }
   .focus-csg {
     @apply outline-none focus:border-csg-500 focus:ring-2 focus:ring-csg-100;
+  }
+}
+
+::selection { background: #b9d8f1; color: #0a345b; }
+
+@media (prefers-reduced-motion: no-preference) {
+  .panel { animation: panel-in 360ms ease-out both; }
+  @keyframes panel-in {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 }

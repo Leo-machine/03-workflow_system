@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import PageShell from "../components/PageShell";
+import Toast from "../components/Toast";
+import { useDialog } from "../components/DialogProvider";
 import { useRefetchOnFocus } from "../hooks/useRefetchOnFocus";
 import type { BusinessDomain, Person, Unit, User } from "../types";
 
@@ -88,11 +90,7 @@ export default function LedgersPage({ user, onLogout }: { user: User; onLogout: 
       )}
       {tab === "units" && <UnitsTab persons={persons} units={units} onAction={run} />}
 
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-md bg-csg-800 px-5 py-2.5 text-sm text-white shadow-lg">
-          {toast}
-        </div>
-      )}
+      {toast && <Toast message={toast} />}
     </PageShell>
   );
 }
@@ -159,6 +157,7 @@ function PersonsTab({
   domains: BusinessDomain[];
   onAction: Action;
 }) {
+  const dialog = useDialog();
   const [query, setQuery] = useState("");
   const [unitFilter, setUnitFilter] = useState<string>("all");
   const [adding, setAdding] = useState(false);
@@ -401,8 +400,8 @@ function PersonsTab({
                   <button
                     type="button"
                     className="text-red-500 hover:text-red-700"
-                    onClick={() => {
-                      if (!window.confirm(`确认删除「${p.name}」？被环节引用的人员无法删除。`)) return;
+                    onClick={async () => {
+                      if (!await dialog.confirm(`确认删除「${p.name}」？被操作指引引用的人员，系统会阻止删除。`, { title: "删除人员", danger: true })) return;
                       void onAction(() => api(`/persons/${p.id}`, { method: "DELETE" }), `已删除 ${p.name}`);
                     }}
                   >
@@ -428,6 +427,7 @@ function PersonsTab({
 /* ---------------- 团队台账 ---------------- */
 
 function UnitsTab({ persons, units, onAction }: { persons: Person[]; units: Unit[]; onAction: Action }) {
+  const dialog = useDialog();
   const [newName, setNewName] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editName, setEditName] = useState("");
@@ -534,8 +534,8 @@ function UnitsTab({ persons, units, onAction }: { persons: Person[]; units: Unit
                   <button
                     type="button"
                     className="text-red-500 hover:text-red-700"
-                    onClick={() => {
-                      if (!window.confirm(`确认删除团队「${u.name}」？`)) return;
+                    onClick={async () => {
+                      if (!await dialog.confirm(`确认删除团队「${u.name}」？仍有关联人员或指引时，系统会阻止删除。`, { title: "删除团队", danger: true })) return;
                       void onAction(() => api(`/units/${u.id}`, { method: "DELETE" }), `已删除团队「${u.name}」`);
                     }}
                   >

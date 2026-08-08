@@ -1,8 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
 from app.config import settings
-from app.routers import auth, change_logs, domains, flows, persons, units
+from app.routers import auth, change_logs, domains, flows, persons, units, uploads
 
 app = FastAPI(title="数智运营中心平台运维团队平台组业务服务系统 API", version="0.1.0")
 
@@ -21,7 +20,7 @@ app.include_router(flows.router, prefix="/api")
 app.include_router(units.router, prefix="/api")
 app.include_router(persons.router, prefix="/api")
 app.include_router(change_logs.router, prefix="/api")
-
+app.include_router(uploads.router, prefix="/api")
 
 @app.get("/api/health")
 def health():

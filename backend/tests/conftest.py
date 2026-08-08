@@ -113,6 +113,7 @@ def ledger(seeded, session_factory):
         s.add(StepPerson(step_id=9, person_id=p3.id))
         s.commit()
         yield {
+            "unit_id": u1.id,
             "unit_ids": [u1.id, u2.id],
             "person_ids": [p1.id, p2.id, p3.id],
             "names": ["张三", "李四", "王五"],

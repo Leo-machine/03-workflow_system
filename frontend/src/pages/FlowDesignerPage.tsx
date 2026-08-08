@@ -18,6 +18,9 @@ import { CSS } from "@dnd-kit/utilities";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api/client";
+import ImageUploader from "../components/ImageUploader";
+import Toast from "../components/Toast";
+import { useDialog } from "../components/DialogProvider";
 import PageShell from "../components/PageShell";
 import type {
   FlowDetail,
@@ -39,26 +42,130 @@ function emptyStep(index: number): StepDefinitionDraft {
     code: String((index + 1) * 10).padStart(3, "0"),
     name: `新环节 ${index + 1}`,
     task: "",
-    person_ids: [],
     guide: [],
   };
 }
 
-function fromFlow(flow: FlowDetail): StepDefinitionDraft[] {
-  return flow.steps.map((step) => ({
-    clientKey: `existing-${step.id}`,
-    code: step.code,
-    name: step.name,
-    task: step.task,
-    person_ids: step.persons.map((p) => p.id),
-    guide: step.guide.map((g) => ({
+function emptyGuide(): GuideItemDraft {
+  return {
+    system_name: "",
+    action_text: "",
+    url: "",
+    image_path: null,
+    note: "",
+    unit_id: null,
+    person_ids: [],
+  };
+}
+
+/**
+ * 将仅挂在 step.persons（旧 step_persons）上的责任人迁入指引草稿，
+ * 避免设计器打开后保存时静默清空。
+ * @returns migrated 是否发生了迁移（用于提示用户核对后保存）
+ */
+function fromFlow(flow: FlowDetail): { steps: StepDefinitionDraft[]; migrated: boolean } {
+  let migrated = false;
+  const steps = flow.steps.map((step) => {
+    const guides: GuideItemDraft[] = step.guide.map((g) => ({
       system_name: g.system_name,
       action_text: g.action_text,
       url: g.url ?? "",
       image_path: g.image_path,
       note: g.note ?? "",
+      unit_id: g.unit?.id ?? null,
+      person_ids: g.persons.map((p) => p.id),
+    }));
+
+    const assignedIds = new Set(guides.flatMap((g) => g.person_ids));
+    const remainingPeople = step.persons.filter((person) => !assignedIds.has(person.id));
+    if (remainingPeople.length === 0) {
+      return {
+        clientKey: `existing-${step.id}`,
+        code: step.code,
+        name: step.name,
+        task: step.task,
+        guide: guides,
+      };
+    }
+
+    // 按责任团队分组（无单位沉底）
+    const byUnit = new Map<number | null, number[]>();
+    for (const person of remainingPeople) {
+      const uid = person.unit?.id ?? null;
+      const list = byUnit.get(uid) ?? [];
+      list.push(person.id);
+      byUnit.set(uid, list);
+    }
+    const groups = [...byUnit.entries()];
+    migrated = true;
+
+    if (guides.length === 0) {
+      return {
+        clientKey: `existing-${step.id}`,
+        code: step.code,
+        name: step.name,
+        task: step.task,
+        guide: groups.map(([unit_id, person_ids]) => ({
+          ...emptyGuide(),
+          system_name: "（待完善）",
+          action_text: "请补充系统操作说明",
+          unit_id,
+          person_ids,
+        })),
+      };
+    }
+
+    // 优先填入同团队的空指引，其次无团队的空指引；不覆盖已有责任配置。
+    for (const [unit_id, person_ids] of groups) {
+      const matching = guides.findIndex(
+        (guide) => guide.person_ids.length === 0 && guide.unit_id === unit_id
+      );
+      const blank = guides.findIndex(
+        (guide) => guide.person_ids.length === 0 && guide.unit_id === null
+      );
+      const target = matching >= 0 ? matching : blank;
+      if (target >= 0) {
+        guides[target] = { ...guides[target], unit_id, person_ids };
+      } else {
+        guides.push({
+          ...emptyGuide(),
+          system_name: "（待完善）",
+          action_text: "请补充系统操作说明",
+          unit_id,
+          person_ids,
+        });
+      }
+    }
+
+    return {
+      clientKey: `existing-${step.id}`,
+      code: step.code,
+      name: step.name,
+      task: step.task,
+      guide: guides,
+    };
+  });
+
+  return { steps, migrated };
+}
+
+function toDefinitionBody(steps: StepDefinitionDraft[]) {
+  return {
+    steps: steps.map((s) => ({
+      code: s.code.trim(),
+      name: s.name.trim(),
+      task: s.task,
+      guide: s.guide.map((g) => ({
+        system_name: g.system_name.trim(),
+        action_text: g.action_text.trim(),
+        url: g.url.trim() || null,
+        image_path: g.image_path,
+        note: g.note.trim() || null,
+        unit_id: g.unit_id,
+        person_ids: g.person_ids,
+      })),
     })),
-  }));
+  };
 }
 
 function validateSteps(steps: StepDefinitionDraft[], { requireNonEmpty }: { requireNonEmpty: boolean }): string | null {
@@ -69,6 +176,7 @@ function validateSteps(steps: StepDefinitionDraft[], { requireNonEmpty }: { requ
       if (!g.system_name.trim() || !g.action_text.trim()) return "指引需填写系统名与动作";
       const url = g.url.trim();
       if (url && !/^https?:\/\//i.test(url)) return "指引链接仅支持 http/https";
+      if (g.person_ids.length > 0 && g.unit_id === null) return "请先选择责任团队再选择责任人";
     }
   }
   return null;
@@ -79,11 +187,13 @@ function SortableStepRow({
   selected,
   onSelect,
   onRemove,
+  onChange,
 }: {
   step: StepDefinitionDraft;
   selected: boolean;
   onSelect: () => void;
   onRemove: () => void;
+  onChange: (patch: Partial<StepDefinitionDraft>) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: step.clientKey,
@@ -98,214 +208,164 @@ function SortableStepRow({
       ref={setNodeRef}
       style={style}
       className={
-        "flex items-stretch gap-1 rounded-md border bg-white " +
+        "rounded-md border bg-white " +
         (selected ? "border-csg-500 ring-2 ring-csg-100" : "border-slate-200") +
         (isDragging ? " opacity-80 shadow-soft" : "")
       }
     >
-      <button
-        type="button"
-        className="cursor-grab px-2 text-slate-400 hover:text-csg-600 active:cursor-grabbing"
-        aria-label="拖拽排序"
-        {...attributes}
-        {...listeners}
-      >
-        ⋮⋮
-      </button>
-      <button type="button" onClick={onSelect} className="min-w-0 flex-1 py-2.5 pr-2 text-left">
-        <div className="mono text-xs text-csg-500">{step.code}</div>
-        <div className="truncate text-sm font-medium text-slate-800">{step.name || "未命名环节"}</div>
-      </button>
-      <button
-        type="button"
-        onClick={onRemove}
-        className="px-2 text-xs text-slate-400 hover:text-red-600"
-        title="删除环节"
-      >
-        ×
-      </button>
+      <div className="flex items-stretch gap-1">
+        <button
+          type="button"
+          className="cursor-grab px-2 text-slate-400 hover:text-csg-600 active:cursor-grabbing"
+          aria-label="拖拽排序"
+          {...attributes}
+          {...listeners}
+        >
+          ⋮⋮
+        </button>
+        <button type="button" onClick={onSelect} className="min-w-0 flex-1 py-2.5 pr-2 text-left">
+          <div className="mono text-xs text-csg-500">{step.code || "编号"}</div>
+          <div className="truncate text-sm font-medium text-slate-800">{step.name || "未命名环节"}</div>
+        </button>
+        <button
+          type="button"
+          onClick={onRemove}
+          className="px-2 text-xs text-slate-400 hover:text-red-600"
+          title="删除环节"
+        >
+          ×
+        </button>
+      </div>
+      {selected && (
+        <div className="space-y-1.5 border-t border-slate-100 px-2.5 pb-2.5 pt-2">
+          <input
+            value={step.code}
+            onChange={(e) => onChange({ code: e.target.value })}
+            placeholder="编号"
+            className="focus-csg mono w-full rounded border border-slate-200 px-2 py-1 text-xs"
+          />
+          <input
+            value={step.name}
+            onChange={(e) => onChange({ name: e.target.value })}
+            placeholder="环节名称"
+            className="focus-csg w-full rounded border border-slate-200 px-2 py-1 text-xs"
+          />
+          <textarea
+            value={step.task}
+            onChange={(e) => onChange({ task: e.target.value })}
+            placeholder="做什么 / 交什么"
+            rows={2}
+            className="focus-csg w-full rounded border border-slate-200 px-2 py-1 text-xs"
+          />
+        </div>
+      )}
     </div>
   );
 }
 
-/** 环节内嵌的人员选择 + 台账内联维护（人员/单位即建即用） */
-function PersonPicker({
+/** 指引责任：先选责任团队，再选该团队下的责任人（数据来自台账） */
+function GuideAssigneeEditor({
   persons,
   units,
-  selectedIds,
-  onToggle,
-  onLedgerChanged,
+  unitId,
+  personIds,
+  onChange,
+  onLedgerRefresh,
 }: {
   persons: Person[];
   units: Unit[];
-  selectedIds: number[];
-  onToggle: (personId: number) => void;
-  onLedgerChanged: (createdPerson: Person | null) => void;
+  unitId: number | null;
+  personIds: number[];
+  onChange: (patch: { unit_id?: number | null; person_ids?: number[] }) => void;
+  onLedgerRefresh: () => void;
 }) {
-  const [addingPerson, setAddingPerson] = useState(false);
-  const [addingUnit, setAddingUnit] = useState(false);
-  const [pName, setPName] = useState("");
-  const [pUnitId, setPUnitId] = useState<number | "">("");
-  const [pTitle, setPTitle] = useState("");
-  const [uName, setUName] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  // 按单位分组（按 order_index 排，未设单位沉底）；
-  // 停用人员不出现在候选里，但已被本环节选中的保留显示（防止引用凭空消失）
-  const grouped = useMemo(() => {
-    const groups: { unit: Unit | null; persons: Person[] }[] = units.map((u) => ({
-      unit: u,
-      persons: [],
-    }));
-    const noUnit: Person[] = [];
-    for (const p of persons) {
-      if (!p.active && !selectedIds.includes(p.id)) continue;
-      if (p.unit) {
-        groups.find((g) => g.unit?.id === p.unit?.id)?.persons.push(p);
-      } else {
-        noUnit.push(p);
-      }
-    }
-    const result = groups.filter((g) => g.persons.length > 0);
-    if (noUnit.length > 0) result.push({ unit: null, persons: noUnit });
-    return result;
-  }, [persons, units, selectedIds]);
-
-  async function addPerson() {
-    if (!pName.trim() || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const created = await api<Person>("/persons", {
-        method: "POST",
-        body: {
-          name: pName.trim(),
-          unit_id: pUnitId === "" ? null : pUnitId,
-          title: pTitle.trim(),
-        },
-      });
-      setPName("");
-      setPTitle("");
-      setAddingPerson(false);
-      onLedgerChanged(created);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "新增人员失败");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function addUnit() {
-    if (!uName.trim() || busy) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const created = await api<Unit>("/units", {
-        method: "POST",
-        body: { name: uName.trim() },
-      });
-      setUName("");
-      setAddingUnit(false);
-      setPUnitId(created.id); // 新单位直接选中到人员表单里
-      onLedgerChanged(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "新增单位失败");
-    } finally {
-      setBusy(false);
-    }
-  }
+  const teamPeople = useMemo(
+    () =>
+      persons.filter(
+        (p) =>
+          unitId !== null &&
+          p.unit?.id === unitId &&
+          (p.active || personIds.includes(p.id))
+      ),
+    [persons, unitId, personIds]
+  );
+  const selectedPeople = useMemo(
+    () => personIds.map((id) => persons.find((p) => p.id === id)).filter((p): p is Person => Boolean(p)),
+    [persons, personIds]
+  );
+  const candidates = teamPeople.filter((p) => !personIds.includes(p.id));
 
   return (
-    <div>
-      <div className="mb-1.5 flex items-center justify-between">
-        <div className="text-xs font-medium text-slate-500">责任人（可多选 = 并行）</div>
-        <div className="flex gap-2 text-xs">
-          <button type="button" className="text-csg-600 hover:text-csg-800" onClick={() => { setAddingPerson((v) => !v); setAddingUnit(false); }}>
-            ＋ 新增人员
-          </button>
-          <button type="button" className="text-csg-600 hover:text-csg-800" onClick={() => { setAddingUnit((v) => !v); setAddingPerson(false); }}>
-            ＋ 新增单位
-          </button>
-        </div>
+    <div className="mt-2 space-y-2 rounded-md border border-slate-100 bg-slate-50/80 p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="text-xs font-medium text-slate-600">责任团队 / 责任人（台账）</span>
+        <Link to="/ledgers" className="text-[11px] text-csg-600 hover:text-csg-800">
+          去台账管理 →
+        </Link>
       </div>
-
-      <div className="max-h-44 space-y-2 overflow-y-auto rounded-md border border-slate-100 bg-csg-50/40 p-2">
-        {grouped.length === 0 && (
-          <p className="px-1 py-2 text-xs text-slate-400">
-            台账为空 —— 点右上角「＋ 新增人员/单位」开始维护。
-          </p>
-        )}
-        {grouped.map((group) => (
-          <div key={group.unit?.id ?? "none"}>
-            <div className="px-1 text-[11px] font-medium text-slate-400">
-              {group.unit?.name ?? "未设单位"}
-            </div>
-            <div className="grid sm:grid-cols-2">
-              {group.persons.map((person) => {
-                const checked = selectedIds.includes(person.id);
-                return (
-                  <label
-                    key={person.id}
-                    className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm hover:bg-white"
-                  >
-                    <input type="checkbox" checked={checked} onChange={() => onToggle(person.id)} />
-                    <span className="text-slate-700">{person.name}</span>
-                    {person.title && <span className="text-[10px] text-slate-400">{person.title}</span>}
-                    {!person.active && <span className="text-[10px] text-red-400">（已停用）</span>}
-                  </label>
-                );
-              })}
-            </div>
-          </div>
+      <select
+        className="focus-csg w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
+        value={unitId ?? ""}
+        onChange={(e) => {
+          const next = e.target.value === "" ? null : Number(e.target.value);
+          onChange({ unit_id: next, person_ids: [] }); // 换团队清空已选人
+        }}
+      >
+        <option value="">先选择责任团队…</option>
+        {units.map((u) => (
+          <option key={u.id} value={u.id}>
+            {u.name}
+          </option>
         ))}
-      </div>
-
-      {addingPerson && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-csg-200 bg-csg-50/60 p-2">
-          <input
-            value={pName}
-            onChange={(e) => setPName(e.target.value)}
-            placeholder="姓名"
-            className="focus-csg w-28 rounded-md border border-slate-200 px-2 py-1.5 text-sm"
-          />
-          <select
-            value={pUnitId}
-            onChange={(e) => setPUnitId(e.target.value === "" ? "" : Number(e.target.value))}
-            className="focus-csg rounded-md border border-slate-200 px-2 py-1.5 text-sm"
-          >
-            <option value="">未设单位</option>
-            {units.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
-            ))}
-          </select>
-          <input
-            value={pTitle}
-            onChange={(e) => setPTitle(e.target.value)}
-            placeholder="职务（可选）"
-            className="focus-csg w-32 rounded-md border border-slate-200 px-2 py-1.5 text-sm"
-          />
-          <button type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy || !pName.trim()} onClick={() => void addPerson()}>
-            添加并选中
-          </button>
+      </select>
+      <select
+        className="focus-csg w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm disabled:bg-slate-100"
+        value=""
+        disabled={unitId === null}
+        onChange={(e) => {
+          const id = Number(e.target.value);
+          if (!id || personIds.includes(id)) return;
+          onChange({ person_ids: [...personIds, id] });
+        }}
+      >
+        <option value="">
+          {unitId === null
+            ? "请先选择责任团队"
+            : candidates.length
+              ? "再选择责任人（可多选）…"
+              : "该团队暂无在职人员"}
+        </option>
+        {candidates.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name}
+            {p.title ? `（${p.title}）` : ""}
+          </option>
+        ))}
+      </select>
+      {selectedPeople.length > 0 ? (
+        <div className="flex flex-wrap gap-1.5">
+          {selectedPeople.map((person) => (
+            <span
+              key={person.id}
+              className="inline-flex items-center gap-1.5 rounded-full bg-csg-50 px-2.5 py-1 text-xs font-medium text-csg-800 ring-1 ring-csg-200"
+            >
+              {person.name}
+              <button
+                type="button"
+                className="text-csg-500 hover:text-red-600"
+                onClick={() => onChange({ person_ids: personIds.filter((id) => id !== person.id) })}
+              >
+                ×
+              </button>
+            </span>
+          ))}
         </div>
+      ) : (
+        <p className="text-[11px] text-slate-400">尚未选择责任人。</p>
       )}
-      {addingUnit && (
-        <div className="mt-2 flex flex-wrap items-center gap-2 rounded-md border border-csg-200 bg-csg-50/60 p-2">
-          <input
-            value={uName}
-            onChange={(e) => setUName(e.target.value)}
-            placeholder="单位名称"
-            className="focus-csg w-44 rounded-md border border-slate-200 px-2 py-1.5 text-sm"
-          />
-          <button type="button" className="btn-primary px-3 py-1.5 text-xs" disabled={busy || !uName.trim()} onClick={() => void addUnit()}>
-            添加单位
-          </button>
-        </div>
-      )}
-      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+      <button type="button" className="text-[11px] text-slate-500 hover:text-csg-700" onClick={onLedgerRefresh}>
+        刷新台账数据
+      </button>
     </div>
   );
 }
@@ -314,6 +374,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
   const { id } = useParams();
   const navigate = useNavigate();
   const isAdmin = user.role === "admin";
+  const dialog = useDialog();
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -346,12 +407,15 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
     setDescription(flow.description);
     setStatus(flow.status);
     setDomainId(flow.domain_id ?? null);
-    const drafted = fromFlow(flow);
+    const { steps: drafted, migrated } = fromFlow(flow);
     setSteps(drafted);
     setSelectedKey(drafted[0]?.clientKey ?? null);
     setPersons(personList);
     setUnits(unitList);
     setDirtyMeta(false);
+    if (migrated) {
+      setToast("已将环节旧责任人迁入系统操作指引，请核对后保存");
+    }
   }, [id]);
 
   useEffect(() => {
@@ -380,26 +444,14 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
     updateSelected({ guide });
   }
 
-  function togglePerson(personId: number) {
-    if (!selected) return;
-    const person_ids = selected.person_ids.includes(personId)
-      ? selected.person_ids.filter((pid) => pid !== personId)
-      : [...selected.person_ids, personId];
-    updateSelected({ person_ids });
-  }
-
-  /** 台账变动后刷新列表；新增人员时自动选中进当前环节 */
-  async function onLedgerChanged(createdPerson: Person | null) {
+  async function refreshLedgers() {
     const [personList, unitList] = await Promise.all([
       api<Person[]>("/persons"),
       api<Unit[]>("/units"),
     ]);
     setPersons(personList);
     setUnits(unitList);
-    if (createdPerson && selected && !selected.person_ids.includes(createdPerson.id)) {
-      updateSelected({ person_ids: [...selected.person_ids, createdPerson.id] });
-    }
-    if (createdPerson) setToast(`已添加 ${createdPerson.name} 并选入本环节`);
+    setToast("台账已刷新");
   }
 
   function onDragEnd(event: DragEndEvent) {
@@ -447,26 +499,12 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
       }
       const result = await api<FlowMutationResult>(`/flows/${id}/definition`, {
         method: "PUT",
-        body: {
-          steps: steps.map((s) => ({
-            code: s.code.trim(),
-            name: s.name.trim(),
-            task: s.task,
-            person_ids: s.person_ids,
-            guide: s.guide.map((g) => ({
-              system_name: g.system_name.trim(),
-              action_text: g.action_text.trim(),
-              url: g.url.trim() || null,
-              image_path: g.image_path,
-              note: g.note.trim() || null,
-            })),
-          })),
-        },
+        body: toDefinitionBody(steps),
       });
       setName(result.flow.name);
       setDescription(result.flow.description);
       setStatus(result.flow.status);
-      const drafted = fromFlow(result.flow);
+      const { steps: drafted } = fromFlow(result.flow);
       setSteps(drafted);
       // 保存后 key 变为 existing-*，按原位置恢复选中
       const prevIndex = selected ? steps.findIndex((s) => s.clientKey === selected.clientKey) : -1;
@@ -505,23 +543,9 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
         if (next === "published") {
           const saved = await api<FlowMutationResult>(`/flows/${id}/definition`, {
             method: "PUT",
-            body: {
-              steps: steps.map((s) => ({
-                code: s.code.trim(),
-                name: s.name.trim(),
-                task: s.task,
-                person_ids: s.person_ids,
-                guide: s.guide.map((g) => ({
-                  system_name: g.system_name.trim(),
-                  action_text: g.action_text.trim(),
-                  url: g.url.trim() || null,
-                  image_path: g.image_path,
-                  note: g.note.trim() || null,
-                })),
-              })),
-            },
+            body: toDefinitionBody(steps),
           });
-          const drafted = fromFlow(saved.flow);
+          const { steps: drafted } = fromFlow(saved.flow);
           setSteps(drafted);
           const prevIndex = selected ? steps.findIndex((s) => s.clientKey === selected.clientKey) : -1;
           const restored = prevIndex >= 0 ? drafted[prevIndex]?.clientKey : undefined;
@@ -543,7 +567,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
 
   async function deleteDraft() {
     if (!id || status !== "draft") return;
-    if (!window.confirm("确认删除该 draft 流程？此操作不可恢复。")) return;
+    if (!await dialog.confirm("确认删除该 draft 流程？流程定义和关联配置将一并删除，且无法恢复。", { title: "删除草稿流程", danger: true })) return;
     setSaving(true);
     try {
       await api(`/flows/${id}`, { method: "DELETE" });
@@ -654,6 +678,11 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                         selected={step.clientKey === selectedKey}
                         onSelect={() => setSelectedKey(step.clientKey)}
                         onRemove={() => removeStep(step.clientKey)}
+                        onChange={(patch) =>
+                          setSteps((prev) =>
+                            prev.map((s) => (s.clientKey === step.clientKey ? { ...s, ...patch } : s))
+                          )
+                        }
                       />
                     ))}
                   </div>
@@ -669,42 +698,12 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                 <p className="text-sm text-slate-400">请选择左侧环节进行编辑。</p>
               ) : (
                 <div className="space-y-4">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div>
-                      <label className="mb-1.5 block text-xs font-medium text-slate-500">编号</label>
-                      <input
-                        value={selected.code}
-                        onChange={(e) => updateSelected({ code: e.target.value })}
-                        className="focus-csg mono block w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-                      />
-                    </div>
-                    <div>
-                      <label className="mb-1.5 block text-xs font-medium text-slate-500">名称</label>
-                      <input
-                        value={selected.name}
-                        onChange={(e) => updateSelected({ name: e.target.value })}
-                        className="focus-csg block w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-                      />
-                    </div>
+                  <div className="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                    当前环节：
+                    <span className="mono ml-1 font-semibold text-csg-700">{selected.code || "—"}</span>
+                    <span className="ml-2 font-semibold text-slate-800">{selected.name || "未命名"}</span>
+                    <span className="ml-2 text-xs text-slate-400">（编号/名称/说明请在左侧编辑）</span>
                   </div>
-                  <div>
-                    <label className="mb-1.5 block text-xs font-medium text-slate-500">做什么 / 交什么</label>
-                    <textarea
-                      value={selected.task}
-                      onChange={(e) => updateSelected({ task: e.target.value })}
-                      rows={3}
-                      className="focus-csg block w-full rounded-md border border-slate-200 px-3 py-2 text-sm"
-                    />
-                  </div>
-
-                  {/* 人员内嵌在环节中：从台账多选；台账可就地维护 */}
-                  <PersonPicker
-                    persons={persons}
-                    units={units}
-                    selectedIds={selected.person_ids}
-                    onToggle={togglePerson}
-                    onLedgerChanged={(p) => void onLedgerChanged(p)}
-                  />
 
                   <div>
                     <div className="mb-2 flex items-center justify-between">
@@ -714,10 +713,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                         className="btn-ghost text-xs"
                         onClick={() =>
                           updateSelected({
-                            guide: [
-                              ...selected.guide,
-                              { system_name: "", action_text: "", url: "", image_path: null, note: "" },
-                            ],
+                            guide: [...selected.guide, emptyGuide()],
                           })
                         }
                       >
@@ -768,10 +764,25 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                             onChange={(e) => updateGuide(index, { note: e.target.value })}
                             className="focus-csg mt-2 w-full rounded-md border border-slate-200 px-2.5 py-1.5 text-sm"
                           />
+                          <GuideAssigneeEditor
+                            persons={persons}
+                            units={units}
+                            unitId={g.unit_id}
+                            personIds={g.person_ids}
+                            onChange={(patch) => updateGuide(index, patch)}
+                            onLedgerRefresh={() => void refreshLedgers()}
+                          />
+                          <div className="mt-2">
+                            <ImageUploader
+                              label="本条指引图示"
+                              value={g.image_path}
+                              onChange={(path) => updateGuide(index, { image_path: path })}
+                            />
+                          </div>
                         </div>
                       ))}
                       {selected.guide.length === 0 && (
-                        <p className="text-xs text-slate-400">本环节暂无指引。</p>
+                        <p className="text-xs text-slate-400">本环节暂无指引。责任团队、责任人与图示均在指引条目中配置。</p>
                       )}
                     </div>
                   </div>
@@ -782,11 +793,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
         </>
       )}
 
-      {toast && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 rounded-md bg-csg-800 px-5 py-2.5 text-sm text-white shadow-lg">
-          {toast}
-        </div>
-      )}
+      {toast && <Toast message={toast} />}
     </PageShell>
   );
 }
