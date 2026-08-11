@@ -23,14 +23,13 @@ const ICONS: Record<string, string> = {
 const ICON_OPTIONS = Object.entries(ICONS);
 
 interface DomainForm {
-  code: string;
   name: string;
   description: string;
   icon: string;
   order_index: string; // 输入框用字符串，空 = 自动排最后
 }
 
-const EMPTY_FORM: DomainForm = { code: "", name: "", description: "", icon: "server", order_index: "" };
+const EMPTY_FORM: DomainForm = { name: "", description: "", icon: "server", order_index: "" };
 
 export default function DomainNavPage({ user, onLogout }: { user: User; onLogout: () => void }) {
   const isAdmin = user.role === "admin";
@@ -73,7 +72,6 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
   function openEdit(domain: BusinessDomain) {
     setEditing(domain);
     setForm({
-      code: domain.code,
       name: domain.name,
       description: domain.description,
       icon: domain.icon,
@@ -89,7 +87,6 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
     setFormError(null);
     try {
       const body = {
-        code: form.code.trim(),
         name: form.name.trim(),
         description: form.description,
         icon: form.icon,
@@ -130,16 +127,18 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
       subtitle="选择已投运业务域，进入流程办事地图。"
       wide
       actions={
-        isAdmin ? (
           <>
+            <Link to="/my-guides" className="btn-primary">我的办理</Link>
+            {isAdmin && <>
             <Link to="/ledgers" className="btn-ghost">
               台账管理
             </Link>
+            <Link to="/users" className="btn-ghost">用户管理</Link>
             <button type="button" className="btn-ghost" onClick={openCreate}>
               ＋ 新增业务域
             </button>
+            </>}
           </>
-        ) : undefined
       }
     >
       {error && (
@@ -215,18 +214,6 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
             </h3>
             <div className="mt-4 space-y-3">
               <div>
-                <label className="mb-1 block text-xs font-medium text-slate-500">
-                  业务键 code{editing ? "（不可变）" : "（小写字母/数字/连字符，创建后不可改）"}
-                </label>
-                <input
-                  value={form.code}
-                  disabled={editing !== null}
-                  onChange={(e) => setForm({ ...form, code: e.target.value })}
-                  placeholder="如 ai-computing"
-                  className="focus-csg mono block w-full rounded-md border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50 disabled:text-slate-400"
-                />
-              </div>
-              <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">名称</label>
                 <input
                   value={form.name}
@@ -283,7 +270,7 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
               <button
                 type="button"
                 className="btn-primary"
-                disabled={busy || !form.name.trim() || (editing === null && !form.code.trim())}
+                disabled={busy || !form.name.trim()}
                 onClick={() => void submitForm()}
               >
                 {busy ? "保存中…" : editing ? "保存" : "创建"}

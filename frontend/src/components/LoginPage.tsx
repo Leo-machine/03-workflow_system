@@ -1,13 +1,15 @@
 import { useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 
-export default function LoginPage() {
-  const { login } = useAuth();
+export default function LoginPage({ initialMode = "login" }: { initialMode?: "login" | "register" }) {
+  const { login, register } = useAuth();
   const navigate = useNavigate();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
+  const [mode, setMode] = useState<"login" | "register">(initialMode);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -17,7 +19,8 @@ export default function LoginPage() {
     setError(null);
     setSubmitting(true);
     try {
-      await login(username.trim(), password);
+      if (mode === "login") await login(username.trim(), password);
+      else await register(username.trim(), password, displayName.trim());
       // 登录成功统一回首页：退出时 URL 可能停留在管理页/详情页
       navigate("/", { replace: true });
     } catch (err) {
@@ -43,7 +46,17 @@ export default function LoginPage() {
           </div>
           <p className="mt-2 text-sm leading-relaxed text-slate-500">归谁办 · 做什么交什么 · 在哪些系统怎么操作</p>
 
-          <form onSubmit={onSubmit} className="mt-6 space-y-4">
+          <div className="mt-6 grid grid-cols-2 rounded-lg bg-slate-100 p-1 text-xs">
+            <button type="button" onClick={() => setMode("login")} className={(mode === "login" ? "bg-white text-csg-700 shadow-sm" : "text-slate-500") + " rounded-md py-2 font-medium"}>账号登录</button>
+            <button type="button" onClick={() => setMode("register")} className={(mode === "register" ? "bg-white text-csg-700 shadow-sm" : "text-slate-500") + " rounded-md py-2 font-medium"}>用户注册</button>
+          </div>
+          <form onSubmit={onSubmit} className="mt-4 space-y-4">
+            {mode === "register" && (
+              <div>
+                <label htmlFor="displayName" className="mb-1.5 block text-xs font-medium text-slate-500">姓名</label>
+                <input id="displayName" value={displayName} onChange={(e) => setDisplayName(e.target.value)} required className="focus-csg block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm" />
+              </div>
+            )}
             <div>
               <label htmlFor="username" className="mb-1.5 block text-xs font-medium text-slate-500">
                 账号
@@ -66,7 +79,8 @@ export default function LoginPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
+                autoComplete={mode === "login" ? "current-password" : "new-password"}
+                minLength={mode === "register" ? 8 : undefined}
                 required
                 className="focus-csg block w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm"
               />
@@ -79,13 +93,16 @@ export default function LoginPage() {
             )}
 
             <button type="submit" disabled={submitting} className="btn-primary w-full py-2.5">
-              {submitting ? "登录中…" : "登 录"}
+              {submitting ? "提交中…" : mode === "login" ? "登 录" : "注册并进入系统"}
             </button>
           </form>
 
           <p className="mt-4 text-xs leading-relaxed text-slate-400">
-            只读账号可查看流程；管理员账号可进入管理模式维护岗位责任人，全部变更留痕。
+            {mode === "login" ? "普通用户可查看流程并建立个人办理事件；管理员可维护流程、台账与用户。" : "注册账号默认为普通用户，管理员权限需由系统管理员授予。"}
           </p>
+          <div className="mt-3 text-center text-xs">
+            {mode === "login" ? <Link to="/register" className="font-medium text-csg-700 hover:underline">没有账号？进入注册页面 →</Link> : <Link to="/" className="font-medium text-csg-700 hover:underline">已有账号？返回登录 →</Link>}
+          </div>
         </div>
       </div>
     </div>

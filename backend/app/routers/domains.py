@@ -1,5 +1,5 @@
 """业务域：全员只读 + 管理员增改删（应对业务变化）。"""
-import re
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -11,9 +11,6 @@ from app.schemas import DomainDetailOut, DomainFlowOut, DomainOut, DomainUpsertI
 
 router = APIRouter(tags=["domains"])
 
-CODE_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{1,49}$")
-
-
 def _published_count():
     return (
         select(func.count(Flow.id))
@@ -21,6 +18,15 @@ def _published_count():
         .correlate(BusinessDomain)
         .scalar_subquery()
     )
+
+
+def _new_domain_code(db: Session) -> str:
+    """生成不可变业务键；不使用名称，避免改名、重名和中文转写带来的不稳定。"""
+    for _ in range(8):
+        code = f"domain-{uuid4().hex[:12]}"
+        if db.scalar(select(BusinessDomain.id).where(BusinessDomain.code == code)) is None:
+            return code
+    raise HTTPException(status_code=500, detail="无法生成唯一业务键")
 
 
 def _domain_out(domain: BusinessDomain, published_flow_count: int) -> DomainOut:
@@ -101,21 +107,16 @@ def create_domain(
     db: Session = Depends(get_db),
     admin: User = Depends(require_admin),
 ):
-    code = body.code.strip().lower()
     name = body.name.strip()
-    if not CODE_PATTERN.match(code):
-        raise HTTPException(status_code=422, detail="code 需为小写字母/数字/连字符（2~50 位）")
     if not name:
         raise HTTPException(status_code=422, detail="业务域名称不能为空")
-    if db.scalar(select(BusinessDomain).where(BusinessDomain.code == code)) is not None:
-        raise HTTPException(status_code=422, detail="code 已存在")
 
     order_index = body.order_index
     if order_index is None:
         order_index = (db.scalar(select(func.max(BusinessDomain.order_index))) or 0) + 1
 
     domain = BusinessDomain(
-        code=code,
+        code=_new_domain_code(db),
         name=name,
         description=body.description,
         icon=body.icon,

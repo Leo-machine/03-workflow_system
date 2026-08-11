@@ -3,8 +3,11 @@
 export type UserRole = "admin" | "viewer";
 
 export interface User {
+  id: number;
   username: string;
   role: UserRole;
+  display_name: string;
+  active: boolean;
 }
 
 export interface LoginResponse {
@@ -91,6 +94,45 @@ export interface FlowDetail {
   steps: Step[];
   slug?: string | null;
   domain_id?: number | null;
+}
+
+export interface GuideArchive {
+  id: number;
+  event_id: number | null;
+  flow_id: number;
+  step_id: number | null;
+  guide_item_id: number | null;
+  status: "in_progress" | "completed";
+  started_at: string;
+  updated_at: string;
+  completed_at: string | null;
+}
+
+export interface GuideEventFlow {
+  archive_id: number;
+  flow_id: number;
+  flow_name: string;
+  status: "in_progress" | "completed";
+  step_id: number | null;
+  guide_item_id: number | null;
+  updated_at: string;
+}
+
+export interface GuideEvent {
+  id: number;
+  event_key: string;
+  title: string;
+  external_ref: string | null;
+  status: "in_progress" | "completed";
+  created_at: string;
+  updated_at: string;
+  flows: GuideEventFlow[];
+}
+
+export interface AvailableGuideFlow {
+  id: number;
+  name: string;
+  domain_name: string;
 }
 
 export interface GuideItemDraft {

@@ -8,7 +8,18 @@ def test_login_success_admin(client):
     body = r.json()
     assert body["token_type"] == "bearer"
     assert body["access_token"]
-    assert body["user"] == {"username": ADMIN["username"], "role": "admin"}
+    assert body["user"]["username"] == ADMIN["username"]
+    assert body["user"]["role"] == "admin"
+    assert body["user"]["active"] is True
+
+
+def test_register_creates_active_viewer_and_rejects_duplicate(client):
+    payload = {"username": "new_user", "password": "strong-pass", "display_name": "新用户"}
+    response = client.post("/api/auth/register", json=payload)
+    assert response.status_code == 201, response.text
+    assert response.json()["user"]["role"] == "viewer"
+    assert response.json()["user"]["display_name"] == "新用户"
+    assert client.post("/api/auth/register", json=payload).status_code == 409
 
 
 def test_login_success_viewer(client):

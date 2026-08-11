@@ -6,6 +6,7 @@ interface Props {
   /** 序号起始值（1-based），用于「带我办理」只展示一条时显示全局序号 */
   numberFrom?: number;
   emptyHint?: string;
+  compact?: boolean;
 }
 
 function safeHref(url: string | null): string | null {
@@ -21,7 +22,7 @@ function safeHref(url: string | null): string | null {
 }
 
 /** 系统操作指引：责任团队/人 + 系统链接 + 图示 + 动作 */
-export default function GuideList({ guide, numberFrom = 1, emptyHint }: Props) {
+export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = false }: Props) {
   if (guide.length === 0) {
     return (
       <p className="mt-3 text-sm text-slate-500">
@@ -43,7 +44,7 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint }: Props) {
               </span>
               {i < guide.length - 1 && <span className="my-1 w-px flex-1 bg-slate-200" />}
             </div>
-            <div className="flex-1 pb-5">
+            <div className={"flex-1 " + (compact ? "pb-2" : "pb-5")}>
               <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-block rounded-md bg-csg-50 px-2 py-0.5 text-xs font-semibold text-csg-800 ring-1 ring-csg-200">
                   {item.system_name}
@@ -61,14 +62,14 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint }: Props) {
               </div>
 
               {(item.unit || item.persons.length > 0) && (
-                <div className="mt-2 rounded-lg bg-slate-50 px-3 py-2 ring-1 ring-slate-100">
+                <div className={(compact ? "mt-1.5 px-2.5 py-1.5" : "mt-2 px-3 py-2") + " rounded-lg bg-slate-50 ring-1 ring-slate-100"}>
                   <div className="text-[11px] font-medium text-slate-400">
                     {item.unit?.name ?? "未设责任团队"}
                   </div>
                   {item.persons.length === 0 ? (
                     <p className="mt-1 text-xs text-slate-400">未指定责任人</p>
                   ) : (
-                    <div className="mt-1 flex flex-wrap gap-3">
+                    <div className={(compact ? "mt-0.5" : "mt-1") + " flex flex-wrap gap-3"}>
                       {item.persons.map((person) => (
                         <div key={person.id} className="flex items-center gap-2">
                           <div className="grid h-7 w-7 place-items-center rounded-full bg-csg-50 text-xs font-semibold text-csg-700 ring-1 ring-csg-200">
@@ -88,13 +89,13 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint }: Props) {
                 </div>
               )}
 
-              <p className="mt-1.5 text-sm leading-relaxed text-slate-700">{item.action_text}</p>
+              <p className={(compact ? "mt-1 leading-5" : "mt-1.5 leading-relaxed") + " text-sm text-slate-700"}>{item.action_text}</p>
               {imageHref && (
                 <AuthenticatedImage
                   path={imageHref}
                   alt={`${item.system_name} 操作图示`}
-                  linkClassName="mt-2 block max-w-md"
-                  className="max-h-40 w-full rounded-lg border border-slate-200 object-contain bg-slate-50"
+                  linkClassName={(compact ? "mt-1.5" : "mt-2") + " block max-w-md"}
+                  className={(compact ? "max-h-28" : "max-h-40") + " w-full rounded-lg border border-slate-200 object-contain bg-slate-50"}
                 />
               )}
               {item.note && (

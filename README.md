@@ -21,7 +21,7 @@ docker compose up --build
 - 打开 http://localhost:8081 （前端，nginx 反代 /api 到后端）
 - 后端 API 文档：http://localhost:8001/docs
 - 初始账号：`admin / admin123`（管理员，可进管理模式改人）、`viewer / viewer123`（只读）
-- 首次启动后端自动执行 `alembic upgrade head` 建表 + `python -m app.seed` 灌入种子流程（幂等，非空库跳过）
+- 首次启动后端自动执行 `alembic upgrade head` 建表 + `python -m app.seed` 灌入初始数据；检测到已有账号后永久跳过业务种子，管理员删除的业务域或流程不会因重启恢复
 
 ## 本地开发
 

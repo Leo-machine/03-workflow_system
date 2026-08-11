@@ -191,3 +191,37 @@ class User(Base):
     username: Mapped[str] = mapped_column(String(50), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(200))
     role: Mapped[str] = mapped_column(String(20))  # viewer/admin
+    display_name: Mapped[str] = mapped_column(String(50), default="")
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class GuideEvent(Base):
+    """一次事项/工单对应的办理事件，可包含多个流程实例。"""
+
+    __tablename__ = "guide_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_key: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    title: Mapped[str] = mapped_column(String(120))
+    external_ref: Mapped[str | None] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(20), default="in_progress")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class GuideArchive(Base):
+    """用户的“带我办理”阅读存档；不记录外部系统的实际办理结果。"""
+
+    __tablename__ = "guide_archives"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[int | None] = mapped_column(ForeignKey("guide_events.id", ondelete="CASCADE"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    flow_id: Mapped[int] = mapped_column(ForeignKey("flows.id", ondelete="CASCADE"), index=True)
+    step_id: Mapped[int | None] = mapped_column(ForeignKey("steps.id", ondelete="SET NULL"))
+    guide_item_id: Mapped[int | None] = mapped_column(ForeignKey("guide_items.id", ondelete="SET NULL"))
+    status: Mapped[str] = mapped_column(String(20), default="in_progress")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

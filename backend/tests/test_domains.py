@@ -1,8 +1,8 @@
 """业务域导航接口与种子归属。"""
 from sqlalchemy import func, select
 
-from app.models import Flow, Step
-from app.seed import seed_data
+from app.models import BusinessDomain, Flow, Step
+from app.seed import initialize_database, seed_data
 from tests.conftest import ADMIN, VIEWER, bearer
 
 
@@ -16,12 +16,13 @@ def test_domains_list_derives_published_count(client, viewer_token):
     assert response.status_code == 200
     domains = response.json()
 
-    assert len(domains) == 7
+    assert len(domains) == 8
     assert [domain["name"] for domain in domains] == [
         "主机运维", "存储运维", "备份设备运维", "云平台运维", "平台软件运维", "IT资源交付",
         "协同办公体验区",
+        "配件管理",
     ]
-    assert [domain["published_flow_count"] for domain in domains] == [0, 0, 0, 0, 0, 1, 1]
+    assert [domain["published_flow_count"] for domain in domains] == [0, 0, 0, 0, 0, 1, 1, 1]
 
 
 def test_delivery_domain_lists_five_flows_and_physical_is_adopted(
@@ -87,7 +88,32 @@ def test_seed_adopts_the_only_legacy_flow_with_steps_without_name_matching(db_se
     assert adopted.id == legacy.id
     assert adopted.name == "任意历史名称"
     assert adopted.status == "published"
-    assert db_session.scalar(select(func.count(Flow.id))) == 6
+    assert db_session.scalar(select(func.count(Flow.id))) == 7
+
+
+def test_startup_seed_does_not_restore_admin_deleted_domain(seeded, session_factory):
+    """数据库完成初始化后，启动种子不得恢复管理员已经删除的业务域。"""
+    with session_factory() as session:
+        domain = session.scalar(
+            select(BusinessDomain).where(BusinessDomain.code == "host-operations")
+        )
+        assert domain is not None
+        session.delete(domain)
+        session.commit()
+
+    with session_factory() as session:
+        changed = initialize_database(
+            session,
+            admin_username=ADMIN["username"],
+            admin_password=ADMIN["password"],
+            viewer_username=VIEWER["username"],
+            viewer_password=VIEWER["password"],
+        )
+        session.commit()
+        assert changed is False
+        assert session.scalar(
+            select(BusinessDomain.id).where(BusinessDomain.code == "host-operations")
+        ) is None
 
 
 # ---------- 管理员业务域增改删 ----------
@@ -97,21 +123,23 @@ def test_domain_create_update_delete(client, admin_token):
     # create
     r = client.post(
         "/api/domains",
-        json={"code": "ai-computing", "name": "智能算力资源管理", "description": "算力资源", "icon": "compute"},
+        json={"name": "智能算力资源管理", "description": "算力资源", "icon": "compute"},
         headers=headers,
     )
     assert r.status_code == 200, r.text
     domain = r.json()
-    assert domain["order_index"] == 7  # 排在 7 个种子域之后
+    assert domain["code"].startswith("domain-")
+    assert len(domain["code"]) == 19
+    assert domain["order_index"] == 8  # 排在 8 个种子域之后
     assert domain["published_flow_count"] == 0
 
-    # 重码 / 非法码 → 422
-    assert client.post(
-        "/api/domains", json={"code": "ai-computing", "name": "重复"}, headers=headers
-    ).status_code == 422
-    assert client.post(
-        "/api/domains", json={"code": "BAD CODE", "name": "坏码"}, headers=headers
-    ).status_code == 422
+    # 即使旧客户端传入 code，服务端也忽略并自动生成不同业务键
+    another = client.post(
+        "/api/domains", json={"code": domain["code"], "name": "自动键验证"}, headers=headers
+    )
+    assert another.status_code == 200
+    assert another.json()["code"] != domain["code"]
+    assert client.delete(f"/api/domains/{another.json()['id']}", headers=headers).status_code == 200
 
     # update（code 不可变，改名留痕）
     r = client.put(

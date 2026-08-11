@@ -4,7 +4,7 @@ set -e
 echo "[entrypoint] 1/3 alembic upgrade head"
 alembic upgrade head
 
-echo "[entrypoint] 2/3 python -m app.seed（幂等）"
+echo "[entrypoint] 2/3 python -m app.seed（仅全新数据库首次初始化）"
 python -m app.seed
 
 echo "[entrypoint] 3/3 uvicorn 0.0.0.0:8000"

@@ -33,7 +33,7 @@ def get_current_user(
     except (PyJWTError, KeyError):
         raise unauthorized
     user = db.scalar(select(User).where(User.username == username))
-    if user is None:
+    if user is None or not user.active:
         raise unauthorized
     return user
 

@@ -3,7 +3,7 @@
 迁移只管 schema，数据一律走本脚本；业务域和流程按稳定业务键幂等同步。
 人员/单位台账一律不灌（需求方要求线上台账为真实数据，由管理员在设计器内维护）。
 """
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -98,6 +98,43 @@ DEMO_STEPS = [
     ]),
 ]
 
+PART_LIFECYCLE_FLOW_SLUG = "compute-card-lifecycle-guide"
+PART_SYSTEM_URL = "http://127.0.0.1:5173"
+PART_LIFECYCLE_STEPS = [
+    ("010", "算力卡到货入库", "按到货资料逐件登记算力卡，建立唯一资产身份并落下第一条入库履历。", [
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/inbound?category=算力卡", "登录系统，从左侧『出入库与流转 → 分类入库』进入，选择『算力卡』。", None),
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/inbound?category=算力卡", "来源选择『独立合同采购』，选择入库库位、运维部门、供应商，填写合同号、所属项目、产权单位、到货验收日期和维保到期时间。", "如果供应商或算力卡型号不在下拉列表中，请先联系领导维护『供应商管理』和『型号管理』。"),
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/inbound?category=算力卡", "选择算力卡型号，核对显存、封装和架构规格；填写固定资产编号、设备序列号、采购金额、可调配标记及备注，点击提交完成入库。", "固定资产编号与序列号用于逐件溯源，提交前务必与到货单和实物铭牌核对。"),
+    ]),
+    ("020", "将算力卡装入服务器", "从配件详情发起装机，把算力卡由库位转为在用，并建立当前安装关系。", [
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/", "进入『配件列表』，按固定资产编号或序列号找到刚入库的算力卡，打开配件详情并点击『装机』。", "只有当前状态为『在库』的配件才会显示装机入口。"),
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/servers", "在装机页面选择目标服务器，按现场安装位置填写槽位（可选），点击『确认装机』。", "系统将写入『装机』履历并建立配件↔服务器关系；优先选择『未投运』服务器，投运服务器装机后无法直接拆下。"),
+    ]),
+    ("030", "检修前停运服务器", "服务器下线检修前，先把运行状态切换为未投运，解除投运锁拆保护。", [
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/servers", "进入『服务器管理』，按服务器资产编号找到算力卡所在服务器，打开编辑并将运行状态由『投运』切换为『未投运』。", "配件运行状态由所在服务器实时派生。请先在实际业务侧完成停机或迁移确认，本系统只记录服务器状态。"),
+    ]),
+    ("040", "拆下算力卡并回库", "选择回库库位，将算力卡从服务器拆下，状态由在用恢复为在库。", [
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/", "回到『配件列表』，打开目标算力卡详情并点击『拆下』。", "若服务器仍为『投运』，系统会直接拦截并提示先到服务器页切换为『未投运』。"),
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/locations", "选择实际回库库位；正常件不要勾选『坏件拆下』，点击『确认拆下』。", "勾选坏件拆下后配件将进入『损坏』状态，后续只能走报废审批。"),
+    ]),
+    ("050", "发起算力卡借出申请", "为兄弟单位选择借出目的地、归还期限和三级审批人，提交借出审批。", [
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/", "在『配件列表』打开目标算力卡详情，确认当前状态为『在库』，点击『借出』。", "借出申请人取当前登录用户；同一配件存在审批中单据时，不能重复发起。"),
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/approvals", "选择外单位，填写预期归还日，依次选择三名互不相同且不包含申请人的领导作为审批人，点击『提交审批』。", "预期归还日不得早于申请日。审批未全部通过前，配件状态和正式履历不会发生变化。"),
+    ]),
+    ("060", "完成三级审批与调出", "三名审批人依次处理借出申请；全部通过后系统才将算力卡正式置为借出。", [
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/approvals", "审批人分别登录系统，进入『审批中心 → 待我审批』，核对配件、外单位和预期归还日后选择『通过』或『驳回』。", "当前级审批人必须与登录用户一致；任一级驳回即结束，需重新发起。"),
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/approvals", "三级全部通过后，系统再次确认配件仍在库，随后写入借出履历并将当前位置更新为外单位。", "审批期间若配件状态已变化，最终审批不会强行借出；请按系统提示重新核实。"),
+    ]),
+    ("070", "归还算力卡入库", "兄弟单位用毕后办理收货确认，选择实际回库库位，将借出件恢复为在库。", [
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/", "在『配件列表』找到状态为『借出』的算力卡；如超过预期归还日，列表会显示超期提醒。打开详情并点击『归还』。", None),
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/locations", "核对归还实物，选择实际回库库位，点击『确认归还入库』。", "归还仅适用于当前状态为『借出』的配件，提交后系统写入归还履历并更新为在库。"),
+    ]),
+    ("080", "查看全生命周期履历", "通过履历时间线核验入库、装机、拆下、借出和归还的完整资产轨迹。", [
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/", "进入『配件列表』，按固定资产编号找到算力卡，打开详情后点击『查看履历』或『全部履历』。", None),
+        ("服务器配件资产管理系统", f"{PART_SYSTEM_URL}/", "按时间线核对每次事件的时间、操作人、状态前后、位置前后、预期归还日期、关联审批和备注。", "履历只增不改不删。页面如提示『缓存不一致』，说明当前状态与履历重放结果不一致，应停止后续操作并联系管理员核查。"),
+    ]),
+]
+
 DRAFT_FLOWS = [
     ("virtual-machine-apply", "虚拟机申请", "虚拟机资源申请流程建设中。"),
     ("platform-software-apply", "平台软件申请(操作系统/数据库/中间件/消息队列)", "平台软件资源申请流程建设中。"),
@@ -133,6 +170,22 @@ def _add_physical_steps(db: Session, *, flow: Flow) -> None:
 
 def _add_demo_steps(db: Session, *, flow: Flow) -> None:
     for order_index, (code, name, task, guide) in enumerate(DEMO_STEPS):
+        step = Step(flow_id=flow.id, code=code, name=name, task=task, order_index=order_index)
+        db.add(step)
+        db.flush()
+        for guide_index, (system_name, url, action_text, note) in enumerate(guide, start=1):
+            db.add(GuideItem(
+                step_id=step.id,
+                order_index=guide_index,
+                system_name=system_name,
+                url=url,
+                action_text=action_text,
+                note=note,
+            ))
+
+
+def _add_part_lifecycle_steps(db: Session, *, flow: Flow) -> None:
+    for order_index, (code, name, task, guide) in enumerate(PART_LIFECYCLE_STEPS):
         step = Step(flow_id=flow.id, code=code, name=name, task=task, order_index=order_index)
         db.add(step)
         db.flush()
@@ -282,13 +335,76 @@ def seed_data(
         changed = True
     else:
         changed |= _sync(demo, domain_id=domains["guided-experience"].id, order_index=0)
+
+    # 优先复用管理员已经建立的「配件管理」业务域；新库没有时再创建稳定种子域。
+    parts_domain = db.scalar(select(BusinessDomain).where(BusinessDomain.name == "配件管理"))
+    if parts_domain is None:
+        parts_domain = db.scalar(
+            select(BusinessDomain).where(BusinessDomain.code == "parts-management")
+        )
+    if parts_domain is None:
+        next_order = (db.scalar(select(func.max(BusinessDomain.order_index))) or 0) + 1
+        parts_domain = BusinessDomain(
+            code="parts-management",
+            name="配件管理",
+            description="服务器核心配件的入库、装机、流转与全生命周期溯源。",
+            icon="chip",
+            order_index=next_order,
+        )
+        db.add(parts_domain)
+        db.flush()
+        changed = True
+
+    lifecycle = db.scalar(select(Flow).where(Flow.slug == PART_LIFECYCLE_FLOW_SLUG))
+    if lifecycle is None:
+        lifecycle = Flow(
+            slug=PART_LIFECYCLE_FLOW_SLUG,
+            domain_id=parts_domain.id,
+            name="算力卡全生命周期溯源",
+            description="指导完成算力卡入库、装机、检修拆下、借出审批、归还及履历核验。",
+            status="published",
+            order_index=0,
+            updated_by="seed",
+        )
+        db.add(lifecycle)
+        db.flush()
+        _add_part_lifecycle_steps(db, flow=lifecycle)
+        changed = True
+    else:
+        changed |= _sync(lifecycle, domain_id=parts_domain.id, order_index=0)
     db.flush()
     return changed
 
 
+def initialize_database(
+    db: Session,
+    *,
+    admin_username: str,
+    admin_password: str,
+    viewer_username: str,
+    viewer_password: str,
+) -> bool:
+    """仅初始化全新数据库；已有任意账号时绝不再同步业务数据。"""
+    if db.scalar(select(User.id).limit(1)) is not None:
+        return False
+    return seed_data(
+        db,
+        admin_username=admin_username,
+        admin_password=admin_password,
+        viewer_username=viewer_username,
+        viewer_password=viewer_password,
+    )
+
+
 def main() -> None:
     with SessionLocal() as db:
-        created = seed_data(
+        # 种子只负责全新数据库的首次初始化。只要已有账号，就说明系统已初始化；
+        # 此后业务域和流程完全以管理员操作为准，启动时不得恢复已删除数据。
+        initialized = db.scalar(select(User.id).limit(1)) is not None
+        if initialized:
+            print("[seed] 数据库已初始化，跳过业务种子（尊重管理员增删改）")
+            return
+        created = initialize_database(
             db,
             admin_username=settings.admin_username,
             admin_password=settings.admin_password,
@@ -296,10 +412,7 @@ def main() -> None:
             viewer_password=settings.viewer_password,
         )
         db.commit()
-    if created:
-        print("[seed] 业务域与流程种子已同步")
-    else:
-        print("[seed] 业务域与流程种子已是最新（幂等）")
+    print("[seed] 全新数据库首次初始化完成" if created else "[seed] 无需初始化")
 
 
 if __name__ == "__main__":

@@ -13,8 +13,24 @@ class LoginRequest(BaseModel):
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
+    id: int
     username: str
     role: str
+    display_name: str = ""
+    active: bool = True
+
+
+class RegisterRequest(BaseModel):
+    username: str
+    password: str
+    display_name: str = ""
+
+
+class UserAdminPatchIn(BaseModel):
+    role: str | None = None
+    active: bool | None = None
+    display_name: str | None = None
+    new_password: str | None = None
 
 
 class LoginResponse(BaseModel):
@@ -115,7 +131,7 @@ class DomainDetailOut(DomainOut):
 
 
 class DomainUpsertIn(BaseModel):
-    code: str  # 业务键：小写字母/数字/连字符；更新时忽略（不可变）
+    code: str | None = None  # 兼容旧客户端；创建时由服务端自动生成，更新时忽略
     name: str
     description: str = ""
     icon: str = "server"
@@ -198,6 +214,69 @@ class FlowMutationResult(BaseModel):
     flow: FlowDetailOut
     change_log_id: int | None = None
     changed: bool = True  # False = no-op（内容无变化），未写日志
+
+
+# ---------- 带我办理存档 ----------
+class GuideArchiveSaveIn(BaseModel):
+    step_id: int
+    guide_item_id: int | None = None
+    status: str = "in_progress"  # in_progress | completed
+    restart: bool = False
+
+
+class GuideArchiveOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    event_id: int | None
+    flow_id: int
+    step_id: int | None
+    guide_item_id: int | None
+    status: str
+    started_at: datetime
+    updated_at: datetime
+    completed_at: datetime | None
+
+
+class GuideEventCreateIn(BaseModel):
+    title: str
+    external_ref: str | None = None
+
+
+class GuideEventPatchIn(BaseModel):
+    title: str | None = None
+    external_ref: str | None = None
+
+
+class GuideEventAddFlowIn(BaseModel):
+    flow_id: int
+
+
+class GuideEventFlowOut(BaseModel):
+    archive_id: int
+    flow_id: int
+    flow_name: str
+    status: str
+    step_id: int | None
+    guide_item_id: int | None
+    updated_at: datetime
+
+
+class GuideEventOut(BaseModel):
+    id: int
+    event_key: str
+    title: str
+    external_ref: str | None
+    status: str
+    created_at: datetime
+    updated_at: datetime
+    flows: list[GuideEventFlowOut] = []
+
+
+class AvailableGuideFlowOut(BaseModel):
+    id: int
+    name: str
+    domain_name: str
 
 
 # ---------- change logs ----------
