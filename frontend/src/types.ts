@@ -17,10 +17,19 @@ export interface LoginResponse {
 }
 
 // ---------- 台账 ----------
+export interface PersonBrief {
+  id: number;
+  name: string;
+  title: string;
+  contact: string | null;
+  active: boolean;
+}
+
 export interface Unit {
   id: number;
   name: string;
   order_index: number;
+  leader: PersonBrief | null;
 }
 
 export interface DomainRef {
@@ -73,6 +82,8 @@ export interface GuideItem {
   note: string | null;
   unit: Unit | null;
   persons: Person[];
+  escalation: PersonBrief | null;
+  direct_leader: PersonBrief | null;
 }
 
 export interface Step {
@@ -135,6 +146,16 @@ export interface AvailableGuideFlow {
   domain_name: string;
 }
 
+export interface GuideResume {
+  archive_id: number;
+  event_id: number | null;
+  event_title: string | null;
+  event_key: string | null;
+  external_ref: string | null;
+  status: "in_progress" | "completed";
+  updated_at: string;
+}
+
 export interface GuideItemDraft {
   system_name: string;
   action_text: string;
@@ -143,6 +164,7 @@ export interface GuideItemDraft {
   note: string;
   unit_id: number | null;
   person_ids: number[];
+  escalation_person_id: number | null;
 }
 
 export interface StepDefinitionDraft {

@@ -1,7 +1,7 @@
 """所属单位台账 CRUD：管理员维护；人员挂在单位下。"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.deps import get_current_user, get_db, require_admin
 from app.models import ChangeLog, GuideItem, Person, Unit, User
@@ -35,7 +35,9 @@ def _add_unit_log(
 
 @router.get("/units", response_model=list[UnitOut])
 def list_units(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
-    return db.scalars(select(Unit).order_by(Unit.order_index, Unit.id)).all()
+    return db.scalars(
+        select(Unit).options(selectinload(Unit.leader)).order_by(Unit.order_index, Unit.id)
+    ).all()
 
 
 @router.post("/units", response_model=UnitOut)
@@ -50,13 +52,15 @@ def create_unit(
     if db.scalar(select(Unit).where(Unit.name == name)) is not None:
         raise HTTPException(status_code=422, detail="单位名称已存在")
 
+    if body.leader_person_id is not None:
+        raise HTTPException(status_code=422, detail="请先创建团队、将人员归入该团队，再设置团队负责人")
     unit = Unit(name=name, order_index=body.order_index)
     db.add(unit)
     db.flush()
     _add_unit_log(db, unit=unit, field="create", admin=admin, new_name=unit.name)
     db.commit()
     db.refresh(unit)
-    return unit
+    return db.scalar(select(Unit).where(Unit.id == unit.id).options(selectinload(Unit.leader)))
 
 
 @router.put("/units/{unit_id}", response_model=UnitOut)
@@ -82,9 +86,28 @@ def update_unit(
     if body.order_index != unit.order_index:
         unit.order_index = body.order_index
         changed = True
+    if "leader_person_id" in body.model_fields_set and body.leader_person_id != unit.leader_person_id:
+        if body.leader_person_id is not None:
+            leader = db.get(Person, body.leader_person_id)
+            if leader is None:
+                raise HTTPException(status_code=422, detail="团队负责人不存在")
+            if not leader.active:
+                raise HTTPException(status_code=422, detail="停用人员不能设为团队负责人")
+            if leader.unit_id != unit.id:
+                raise HTTPException(status_code=422, detail="团队负责人必须是本团队成员")
+            new_name = leader.name
+        else:
+            new_name = None
+        old = db.get(Person, unit.leader_person_id) if unit.leader_person_id else None
+        _add_unit_log(
+            db, unit=unit, field="leader", admin=admin,
+            old_name=old.name if old else None, new_name=new_name,
+        )
+        unit.leader_person_id = body.leader_person_id
+        changed = True
     if changed:
         db.commit()
-    return unit
+    return db.scalar(select(Unit).where(Unit.id == unit.id).options(selectinload(Unit.leader)))
 
 
 @router.delete("/units/{unit_id}")

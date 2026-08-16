@@ -37,7 +37,7 @@ export default function UsersPage({ user, onLogout }: { user: User; onLogout: ()
   }
 
   return (
-    <PageShell user={user} onLogout={onLogout} title="用户管理" subtitle="管理注册用户的状态与权限。" backTo="/" backLabel="返回业务域" wide actions={<button className="btn-primary" onClick={() => setCreating(true)}>＋ 新增用户</button>}>
+    <PageShell user={user} onLogout={onLogout} title="用户管理" subtitle="管理注册用户的状态与权限。" backTo="/" backLabel="返回业务导航" wide actions={<button className="btn-primary" onClick={() => setCreating(true)}>＋ 新增用户</button>}>
       {error && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</div>}
       <div className="panel overflow-hidden">
         <div className="grid grid-cols-[1.2fr_1fr_0.8fr_1.6fr] gap-3 border-b border-slate-100 bg-slate-50 px-5 py-3 text-xs font-semibold text-slate-500">

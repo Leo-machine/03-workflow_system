@@ -40,17 +40,31 @@ class LoginResponse(BaseModel):
 
 
 # ---------- 台账：units / persons ----------
+class PersonBrief(BaseModel):
+    """精简人员：给团队负责人 / 直接领导用，避免和 UnitOut 循环嵌套。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    name: str
+    title: str = ""
+    contact: str | None = None
+    active: bool = True
+
+
 class UnitOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
     name: str
     order_index: int
+    leader: PersonBrief | None = None
 
 
 class UnitUpsertIn(BaseModel):
     name: str
     order_index: int = 0
+    leader_person_id: int | None = None
 
 
 class DomainRefOut(BaseModel):
@@ -151,6 +165,8 @@ class GuideItemOut(BaseModel):
     note: str | None
     unit: UnitOut | None = None  # 责任团队（台账）
     persons: list[PersonOut] = []  # 责任人（受团队约束，可多选）
+    escalation: PersonBrief | None = None  # 本条指定的直接领导；空则用团队负责人
+    direct_leader: PersonBrief | None = None  # 解析后的直接领导（指定或默认）
 
 
 class StepOut(BaseModel):
@@ -194,6 +210,7 @@ class GuideItemIn(BaseModel):
     note: str | None = None
     unit_id: int | None = None  # 责任团队
     person_ids: list[int] = []  # 责任人（须属于所选团队）
+    escalation_person_id: int | None = None  # 直接领导；空则用责任团队负责人
 
 
 class StepDefinitionIn(BaseModel):
@@ -238,9 +255,22 @@ class GuideArchiveOut(BaseModel):
     completed_at: datetime | None
 
 
+class GuideResumeOut(BaseModel):
+    """同一流程下当前用户可继续的办理实例。"""
+
+    archive_id: int
+    event_id: int | None
+    event_title: str | None
+    event_key: str | None
+    external_ref: str | None
+    status: str
+    updated_at: datetime
+
+
 class GuideEventCreateIn(BaseModel):
     title: str
     external_ref: str | None = None
+    flow_id: int | None = None
 
 
 class GuideEventPatchIn(BaseModel):
@@ -292,3 +322,23 @@ class ChangeLogOut(BaseModel):
     role_name: str | None  # entity_type=assignment（历史遗留）时 join roles.name
     changed_by: str
     changed_at: datetime
+
+
+class FlowImportIssue(BaseModel):
+    row: int
+    message: str
+
+
+class FlowImportFlowPlan(BaseModel):
+    domain_name: str
+    flow_name: str
+    step_count: int
+    guide_count: int
+
+
+class FlowImportResult(BaseModel):
+    ok: bool
+    committed: bool
+    issues: list[FlowImportIssue] = []
+    flows: list[FlowImportFlowPlan] = []
+    created_flow_ids: list[int] = []

@@ -22,7 +22,7 @@ export default function StepDetail({ step }: Props) {
           </span>
         </div>
         <p className="mt-1.5 text-sm font-medium text-slate-600">
-          归谁办 · 做什么、交什么 · 对照图示 · 在哪些系统怎么操作（附带链接）
+          归谁办 · 直接领导是谁 · 做什么、交什么 · 对照图示 · 在哪些系统怎么操作（附带链接）
         </p>
       </div>
 

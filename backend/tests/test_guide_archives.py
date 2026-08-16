@@ -44,3 +44,16 @@ def test_guide_archive_rejects_step_from_another_flow(client, admin_token):
         headers=bearer(admin_token),
     )
     assert response.status_code == 422
+
+
+def test_guide_resumes_are_private_and_include_event(client, viewer_token, admin_token):
+    viewer = bearer(viewer_token)
+    event = client.post("/api/guide-events", json={"title": "续办事项", "external_ref": "WO-9"}, headers=viewer).json()
+    archive = client.post(f"/api/guide-events/{event['id']}/flows", json={"flow_id": 1}, headers=viewer).json()
+    resumes = client.get("/api/flows/1/guide-resumes", headers=viewer).json()
+    match = next(item for item in resumes if item["archive_id"] == archive["id"])
+    assert match["event_title"] == "续办事项"
+    assert match["event_key"] == event["event_key"]
+    assert match["external_ref"] == "WO-9"
+    assert match["status"] == "in_progress"
+    assert all(item["archive_id"] != archive["id"] for item in client.get("/api/flows/1/guide-resumes", headers=bearer(admin_token)).json())

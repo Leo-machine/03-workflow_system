@@ -11,6 +11,7 @@ from app.models import (
     BusinessDomain,
     ChangeLog,
     Flow,
+    GuideArchive,
     GuideItem,
     GuideItemPerson,
     Person,
@@ -27,7 +28,9 @@ from app.schemas import (
     FlowMutationResult,
     FlowPatchIn,
     GuideItemOut,
+    PersonBrief,
     PersonOut,
+    StepDefinitionIn,
     StepOut,
     UnitOut,
 )
@@ -37,13 +40,27 @@ router = APIRouter(tags=["flows"])
 
 def _step_eager_options():
     return [
-        selectinload(Flow.steps).selectinload(Step.persons).selectinload(Person.unit),
+        selectinload(Flow.steps).selectinload(Step.persons).selectinload(Person.unit).selectinload(Unit.leader),
         selectinload(Flow.steps)
         .selectinload(Step.guide_items)
         .selectinload(GuideItem.persons)
-        .selectinload(Person.unit),
-        selectinload(Flow.steps).selectinload(Step.guide_items).selectinload(GuideItem.unit),
+        .selectinload(Person.unit)
+        .selectinload(Unit.leader),
+        selectinload(Flow.steps).selectinload(Step.guide_items).selectinload(GuideItem.unit).selectinload(Unit.leader),
+        selectinload(Flow.steps).selectinload(Step.guide_items).selectinload(GuideItem.escalation_person),
     ]
+
+
+def _person_brief(person: Person | None) -> PersonBrief | None:
+    return PersonBrief.model_validate(person) if person else None
+
+
+def _resolved_direct_leader(guide: GuideItem) -> Person | None:
+    if guide.escalation_person is not None:
+        return guide.escalation_person
+    if guide.unit is not None:
+        return guide.unit.leader
+    return None
 
 
 def _guide_out(guide: GuideItem) -> GuideItemOut:
@@ -57,6 +74,8 @@ def _guide_out(guide: GuideItem) -> GuideItemOut:
         note=guide.note,
         unit=UnitOut.model_validate(guide.unit) if guide.unit else None,
         persons=[PersonOut.model_validate(p) for p in guide.persons],
+        escalation=_person_brief(guide.escalation_person),
+        direct_leader=_person_brief(_resolved_direct_leader(guide)),
     )
 
 
@@ -163,9 +182,15 @@ def _add_flow_log(
 @router.get("/flows/{flow_id}", response_model=FlowDetailOut)
 def get_flow(flow_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     flow = _load_flow(db, flow_id)
-    # draft 仅 admin 可见；viewer 返回 404（不暴露存在性）
+    # draft 默认仅 admin 可见；已有办理存档的用户仍可读，避免取消发布后中途办理 404
     if flow.status != "published" and user.role != "admin":
-        raise HTTPException(status_code=404, detail="流程不存在")
+        owned = db.scalar(
+            select(GuideArchive.id).where(
+                GuideArchive.user_id == user.id, GuideArchive.flow_id == flow.id
+            ).limit(1)
+        )
+        if owned is None:
+            raise HTTPException(status_code=404, detail="流程不存在")
     return _flow_detail(flow)
 
 
@@ -273,6 +298,7 @@ def _norm_guide(
     note: str | None,
     unit_id: int | None,
     person_ids: list[int],
+    escalation_person_id: int | None = None,
 ):
     return (
         (system or "").strip(),
@@ -282,6 +308,7 @@ def _norm_guide(
         (note or "").strip(),
         unit_id,
         tuple(sorted(person_ids)),
+        escalation_person_id,
     )
 
 
@@ -300,22 +327,18 @@ def _norm_definition_step(
     )
 
 
-@router.put("/flows/{flow_id}/definition", response_model=FlowMutationResult)
-def put_flow_definition(
-    flow_id: int,
-    body: FlowDefinitionIn,
-    db: Session = Depends(get_db),
-    admin: User = Depends(require_admin),
-):
-    flow = _load_flow(db, flow_id)
+def _definition_person_ids(steps: list[StepDefinitionIn]) -> set[int]:
+    ids: set[int] = set()
+    for step in steps:
+        for guide in step.guide:
+            ids.update(guide.person_ids)
+            if guide.escalation_person_id is not None:
+                ids.add(guide.escalation_person_id)
+    return ids
 
-    # 已发布流程冻结定义：先回 draft 再改，避免线上内容被静默改写
-    if flow.status != "draft":
-        raise HTTPException(status_code=422, detail="已发布流程请先回 draft 再修改定义")
 
-    all_person_ids = {
-        pid for step in body.steps for guide in step.guide for pid in guide.person_ids
-    }
+def _load_definition_persons(db: Session, steps: list[StepDefinitionIn]) -> dict[int, Person]:
+    all_person_ids = _definition_person_ids(steps)
     persons_by_id: dict[int, Person] = {}
     if all_person_ids:
         found = db.scalars(
@@ -325,16 +348,17 @@ def put_flow_definition(
         missing = all_person_ids - persons_by_id.keys()
         if missing:
             raise HTTPException(status_code=422, detail=f"人员不存在: {sorted(missing)}")
-
-    all_unit_ids = {g.unit_id for step in body.steps for g in step.guide if g.unit_id is not None}
+    all_unit_ids = {g.unit_id for step in steps for g in step.guide if g.unit_id is not None}
     if all_unit_ids:
         found_units = set(db.scalars(select(Unit.id).where(Unit.id.in_(all_unit_ids))).all())
         missing_units = all_unit_ids - found_units
         if missing_units:
             raise HTTPException(status_code=422, detail=f"责任团队不存在: {sorted(missing_units)}")
+    return persons_by_id
 
-    # 先整体预校验，再动库（避免先删后建中途报错）
-    for step_in in body.steps:
+
+def _validate_definition_steps(steps: list[StepDefinitionIn], persons_by_id: dict[int, Person]) -> None:
+    for step_in in steps:
         if not step_in.code.strip() or not step_in.name.strip():
             raise HTTPException(status_code=422, detail="环节编号与名称不能为空")
         for guide in step_in.guide:
@@ -358,63 +382,9 @@ def put_flow_definition(
                         detail=f"责任人「{person.name}」不属于所选责任团队",
                     )
 
-    # no-op 判定：与现有定义规范化后对比，完全一致则不动库、不写日志
-    current = [
-        _norm_definition_step(
-            step.code,
-            step.name,
-            step.task,
-            [
-                _norm_guide(
-                    g.system_name,
-                    g.action_text,
-                    g.url,
-                    g.image_path,
-                    g.note,
-                    g.unit_id,
-                    [p.id for p in g.persons],
-                )
-                for g in step.guide_items
-            ],
-        )
-        for step in flow.steps
-    ]
-    incoming = [
-        _norm_definition_step(
-            step_in.code,
-            step_in.name,
-            step_in.task,
-            [
-                _norm_guide(
-                    g.system_name,
-                    g.action_text,
-                    g.url,
-                    g.image_path,
-                    g.note,
-                    g.unit_id,
-                    g.person_ids,
-                )
-                for g in step_in.guide
-            ],
-        )
-        for step_in in body.steps
-    ]
-    if incoming == current:
-        return FlowMutationResult(flow=_flow_detail(flow), change_log_id=None, changed=False)
 
-    # 清空旧环节与关联（避免 secondary 表残留）
-    step_ids = [s.id for s in flow.steps]
-    if step_ids:
-        guide_ids = [g.id for s in flow.steps for g in s.guide_items]
-        if guide_ids:
-            db.execute(delete(GuideItemPerson).where(GuideItemPerson.guide_item_id.in_(guide_ids)))
-        db.execute(delete(StepPerson).where(StepPerson.step_id.in_(step_ids)))
-        db.execute(delete(GuideItem).where(GuideItem.step_id.in_(step_ids)))
-        db.execute(delete(Step).where(Step.id.in_(step_ids)))
-        db.flush()
-        flow.steps.clear()
-
-    for order_index, step_in in enumerate(body.steps):
+def _insert_definition_steps(db: Session, flow: Flow, steps: list[StepDefinitionIn]) -> None:
+    for order_index, step_in in enumerate(steps):
         step = Step(
             flow_id=flow.id,
             code=step_in.code.strip(),
@@ -436,6 +406,7 @@ def put_flow_definition(
                 action_text=guide.action_text.strip(),
                 note=guide.note,
                 unit_id=guide.unit_id,
+                escalation_person_id=guide.escalation_person_id,
             )
             db.add(item)
             db.flush()
@@ -445,6 +416,193 @@ def put_flow_definition(
                     step_person_ids.append(person_id)
         for person_id in step_person_ids:
             db.add(StepPerson(step_id=step.id, person_id=person_id))
+
+
+def _replace_flow_steps(db: Session, flow: Flow, steps: list[StepDefinitionIn]) -> None:
+    step_ids = [s.id for s in flow.steps]
+    if step_ids:
+        guide_ids = [g.id for s in flow.steps for g in s.guide_items]
+        if guide_ids:
+            db.execute(delete(GuideItemPerson).where(GuideItemPerson.guide_item_id.in_(guide_ids)))
+        db.execute(delete(StepPerson).where(StepPerson.step_id.in_(step_ids)))
+        db.execute(delete(GuideItem).where(GuideItem.step_id.in_(step_ids)))
+        db.execute(delete(Step).where(Step.id.in_(step_ids)))
+        db.flush()
+        flow.steps.clear()
+    _insert_definition_steps(db, flow, steps)
+    db.flush()
+    db.refresh(flow)
+
+
+def _cloned_flow_name(db: Session, domain_id: int, source_name: str) -> str:
+    existing = set(db.scalars(select(Flow.name).where(Flow.domain_id == domain_id)).all())
+    suffix = "（副本）"
+    base = source_name + suffix
+    if len(base) > 100:
+        base = source_name[: 100 - len(suffix)] + suffix
+    if base not in existing:
+        return base
+    n = 2
+    while n < 1000:
+        extra = f"（副本{n}）"
+        name = source_name + extra
+        if len(name) > 100:
+            name = source_name[: 100 - len(extra)] + extra
+        if name not in existing:
+            return name
+        n += 1
+    raise HTTPException(status_code=500, detail="无法生成副本名称")
+
+
+def _copy_flow_structure(db: Session, source: Flow, dest: Flow) -> None:
+    for step in source.steps:
+        new_step = Step(
+            flow_id=dest.id,
+            code=step.code,
+            name=step.name,
+            task=step.task,
+            order_index=step.order_index,
+            image_path=step.image_path,
+        )
+        db.add(new_step)
+        db.flush()
+        step_person_ids: list[int] = []
+        for guide in step.guide_items:
+            item = GuideItem(
+                step_id=new_step.id,
+                order_index=guide.order_index,
+                system_name=guide.system_name,
+                url=guide.url,
+                image_path=guide.image_path,
+                action_text=guide.action_text,
+                note=guide.note,
+                unit_id=guide.unit_id,
+                escalation_person_id=guide.escalation_person_id,
+            )
+            db.add(item)
+            db.flush()
+            for person in guide.persons:
+                db.add(GuideItemPerson(guide_item_id=item.id, person_id=person.id))
+                if person.id not in step_person_ids:
+                    step_person_ids.append(person.id)
+        for person_id in step_person_ids:
+            db.add(StepPerson(step_id=new_step.id, person_id=person_id))
+
+
+def _archive_snapshots(db: Session, flow_id: int) -> list[tuple[GuideArchive, str | None, int | None, int | None]]:
+    """定义重建前记下存档对应的环节编号 / 顺序 / 指引序号，供映射到新 ID。"""
+    rows = db.execute(
+        select(GuideArchive, Step, GuideItem)
+        .outerjoin(Step, Step.id == GuideArchive.step_id)
+        .outerjoin(GuideItem, GuideItem.id == GuideArchive.guide_item_id)
+        .where(GuideArchive.flow_id == flow_id)
+    ).all()
+    return [
+        (
+            archive,
+            step.code if step else None,
+            step.order_index if step else None,
+            guide.order_index if guide else None,
+        )
+        for archive, step, guide in rows
+    ]
+
+
+def _remap_archives(
+    snapshots: list[tuple[GuideArchive, str | None, int | None, int | None]],
+    steps_by_code: dict[str, Step],
+    steps_by_order: dict[int, Step],
+    guides_by_key: dict[tuple[str, int], GuideItem],
+) -> None:
+    first = next(iter(steps_by_order.values()), None) if steps_by_order else None
+    for archive, code, step_order, guide_order in snapshots:
+        target = (steps_by_code.get(code) if code else None)
+        if target is None and step_order is not None:
+            target = steps_by_order.get(step_order)
+        if target is None:
+            target = first
+        if target is None:
+            archive.step_id = None
+            archive.guide_item_id = None
+            continue
+        archive.step_id = target.id
+        if guide_order is None:
+            archive.guide_item_id = None
+            continue
+        guide = guides_by_key.get((target.code, guide_order))
+        archive.guide_item_id = guide.id if guide else None
+
+
+@router.put("/flows/{flow_id}/definition", response_model=FlowMutationResult)
+def put_flow_definition(
+    flow_id: int,
+    body: FlowDefinitionIn,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    flow = _load_flow(db, flow_id)
+
+    # 已发布流程冻结定义：先回 draft 再改，避免线上内容被静默改写
+    if flow.status != "draft":
+        raise HTTPException(status_code=422, detail="已发布流程请先回 draft 再修改定义")
+
+    persons_by_id = _load_definition_persons(db, body.steps)
+    _validate_definition_steps(body.steps, persons_by_id)
+
+    # no-op 判定：与现有定义规范化后对比，完全一致则不动库、不写日志
+    current = [
+        _norm_definition_step(
+            step.code,
+            step.name,
+            step.task,
+            [
+                _norm_guide(
+                    g.system_name,
+                    g.action_text,
+                    g.url,
+                    g.image_path,
+                    g.note,
+                    g.unit_id,
+                    [p.id for p in g.persons],
+                    g.escalation_person_id,
+                )
+                for g in step.guide_items
+            ],
+        )
+        for step in flow.steps
+    ]
+    incoming = [
+        _norm_definition_step(
+            step_in.code,
+            step_in.name,
+            step_in.task,
+            [
+                _norm_guide(
+                    g.system_name,
+                    g.action_text,
+                    g.url,
+                    g.image_path,
+                    g.note,
+                    g.unit_id,
+                    g.person_ids,
+                    g.escalation_person_id,
+                )
+                for g in step_in.guide
+            ],
+        )
+        for step_in in body.steps
+    ]
+    if incoming == current:
+        return FlowMutationResult(flow=_flow_detail(flow), change_log_id=None, changed=False)
+
+    archive_snapshots = _archive_snapshots(db, flow.id)
+    _replace_flow_steps(db, flow, body.steps)
+    _remap_archives(
+        archive_snapshots,
+        {s.code: s for s in flow.steps},
+        {s.order_index: s for s in flow.steps},
+        {(s.code, g.order_index): g for s in flow.steps for g in s.guide_items},
+    )
 
     flow.updated_by = admin.username
     flow.updated_at = datetime.now(timezone.utc)
@@ -458,6 +616,40 @@ def put_flow_definition(
     db.expire_all()
     return FlowMutationResult(
         flow=_flow_detail(_load_flow(db, flow_id)), change_log_id=change_log_id, changed=True
+    )
+
+
+@router.post("/flows/{flow_id}/clone", response_model=FlowMutationResult)
+def clone_flow(
+    flow_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    source = _load_flow(db, flow_id)
+    if source.domain_id is None:
+        raise HTTPException(status_code=422, detail="流程未归属业务域，无法复制")
+
+    dest = Flow(
+        slug=_unique_slug(db),
+        domain_id=source.domain_id,
+        name=_cloned_flow_name(db, source.domain_id, source.name),
+        description=source.description,
+        status="draft",
+        order_index=_next_order_index(db, source.domain_id),
+        updated_by=admin.username,
+    )
+    db.add(dest)
+    db.flush()
+    _copy_flow_structure(db, source, dest)
+    log = _add_flow_log(
+        db, flow=dest, field="clone", old_value=str(source.id), new_value="draft",
+        admin=admin, old_name=source.name, new_name=dest.name,
+    )
+    db.flush()
+    db.commit()
+    db.expire_all()
+    return FlowMutationResult(
+        flow=_flow_detail(_load_flow(db, dest.id)), change_log_id=log.id, changed=True
     )
 
 

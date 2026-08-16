@@ -60,7 +60,7 @@ export default function LedgersPage({ user, onLogout }: { user: User; onLogout: 
       title="台账管理"
       subtitle="人员信息台账与所属团队台账；环节选人、办事地图展示实时引用此处数据。"
       backTo="/"
-      backLabel="平台组业务导航"
+      backLabel="返回业务导航"
       wide
     >
       {error && (
@@ -462,7 +462,7 @@ function UnitsTab({ persons, units, onAction }: { persons: Person[]; units: Unit
         >
           ＋ 新增团队
         </button>
-        <span className="ml-auto text-xs text-slate-400">人员挂团队，团队被引用时不可删除</span>
+        <span className="ml-auto text-xs text-slate-400">团队负责人是流程「直接领导」的默认人选；人员挂团队，被引用时不可删除</span>
       </div>
 
       <div className="mt-3 overflow-x-auto">
@@ -470,6 +470,7 @@ function UnitsTab({ persons, units, onAction }: { persons: Person[]; units: Unit
           <thead>
             <tr className="border-b border-slate-100 text-left text-xs text-slate-400">
               <th className="py-2 pr-4 font-medium">团队名称</th>
+              <th className="py-2 pr-4 font-medium">团队负责人</th>
               <th className="py-2 pr-4 font-medium">人数</th>
               <th className="py-2 font-medium">操作</th>
             </tr>
@@ -509,6 +510,33 @@ function UnitsTab({ persons, units, onAction }: { persons: Person[]; units: Unit
                     u.name
                   )}
                 </td>
+                <td className="py-2.5 pr-4">
+                  <select
+                    className="focus-csg max-w-44 rounded-md border border-slate-200 bg-white px-2 py-1 text-sm"
+                    value={u.leader?.id ?? ""}
+                    onChange={(e) => {
+                      const leader_person_id = e.target.value === "" ? null : Number(e.target.value);
+                      void onAction(
+                        () =>
+                          api(`/units/${u.id}`, {
+                            method: "PUT",
+                            body: { name: u.name, order_index: u.order_index, leader_person_id },
+                          }),
+                        leader_person_id ? "团队负责人已更新" : "已清除团队负责人",
+                      );
+                    }}
+                  >
+                    <option value="">未指定</option>
+                    {persons
+                      .filter((p) => p.unit?.id === u.id && (p.active || p.id === u.leader?.id))
+                      .sort((a, b) => a.name.localeCompare(b.name, "zh"))
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name}
+                        </option>
+                      ))}
+                  </select>
+                </td>
                 <td className="py-2.5 pr-4 text-slate-600">
                   <div>{memberCount.get(u.id) ?? 0} 人</div>
                   <div className="mt-0.5 max-w-md truncate text-xs text-slate-400">
@@ -546,7 +574,7 @@ function UnitsTab({ persons, units, onAction }: { persons: Person[]; units: Unit
             ))}
             {units.length === 0 && (
               <tr>
-                <td colSpan={3} className="py-6 text-center text-sm text-slate-400">
+                <td colSpan={4} className="py-6 text-center text-sm text-slate-400">
                   暂无团队，先在上方新增。
                 </td>
               </tr>

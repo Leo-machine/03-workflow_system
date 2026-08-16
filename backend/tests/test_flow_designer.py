@@ -350,3 +350,139 @@ def test_patch_long_description_truncated_not_crash(client, admin_token):
     assert r.status_code == 200, r.text
     logs = client.get("/api/change-logs?limit=1", headers=headers).json()
     assert len(logs[0]["new_value"]) <= 100
+
+
+def _guide_payload(unit_id: int, person_id: int, action: str = "办理"):
+    return {
+        "system_name": "工单",
+        "action_text": action,
+        "unit_id": unit_id,
+        "person_ids": [person_id],
+    }
+
+
+def test_definition_rebuild_remaps_in_progress_archives(client, admin_token, viewer_token, ledger):
+    admin = bearer(admin_token)
+    viewer = bearer(viewer_token)
+    unit_id = ledger["unit_id"]
+    person_id = ledger["person_ids"][0]
+    domains = client.get("/api/domains", headers=admin).json()
+    delivery = next(item for item in domains if item["code"] == "it-resource-delivery")
+    flow_id = client.post(
+        "/api/flows", json={"domain_id": delivery["id"], "name": "存档映射流程"}, headers=admin
+    ).json()["flow"]["id"]
+
+    def put_definition(steps: list[tuple[str, str, str]]):
+        return client.put(
+            f"/api/flows/{flow_id}/definition",
+            json={
+                "steps": [
+                    {
+                        "code": code,
+                        "name": name,
+                        "task": task,
+                        "guide": [_guide_payload(unit_id, person_id, task)],
+                    }
+                    for code, name, task in steps
+                ]
+            },
+            headers=admin,
+        )
+
+    assert put_definition([("A1", "申请", "发起"), ("A2", "审批", "审核")]).status_code == 200
+    assert client.patch(f"/api/flows/{flow_id}", json={"status": "published"}, headers=admin).status_code == 200
+    detail = client.get(f"/api/flows/{flow_id}", headers=viewer).json()
+    a2 = next(step for step in detail["steps"] if step["code"] == "A2")
+    old_a2_id = a2["id"]
+    old_guide_id = a2["guide"][0]["id"]
+
+    event = client.post("/api/guide-events", json={"title": "映射事项"}, headers=viewer).json()
+    archive = client.post(
+        f"/api/guide-events/{event['id']}/flows", json={"flow_id": flow_id}, headers=viewer
+    ).json()
+    saved = client.put(
+        f"/api/guide-archives/{archive['id']}",
+        json={"step_id": old_a2_id, "guide_item_id": old_guide_id, "status": "in_progress"},
+        headers=viewer,
+    )
+    assert saved.status_code == 200, saved.text
+
+    client.patch(f"/api/flows/{flow_id}", json={"status": "draft"}, headers=admin)
+    rebuilt = put_definition([("A1", "申请", "发起（改）"), ("A2", "审批", "审核（改）")])
+    assert rebuilt.status_code == 200, rebuilt.text
+    new_a2 = next(step for step in rebuilt.json()["flow"]["steps"] if step["code"] == "A2")
+    after = client.get(f"/api/guide-archives/{archive['id']}", headers=viewer).json()
+    assert after["step_id"] == new_a2["id"]
+    assert after["guide_item_id"] == new_a2["guide"][0]["id"]
+    assert client.get(f"/api/flows/{flow_id}", headers=viewer).status_code == 200
+
+    renamed = put_definition([("A1", "申请", "发起"), ("B2", "审批", "审核改码")])
+    assert renamed.status_code == 200
+    new_b2 = next(step for step in renamed.json()["flow"]["steps"] if step["code"] == "B2")
+    after_rename = client.get(f"/api/guide-archives/{archive['id']}", headers=viewer).json()
+    assert after_rename["step_id"] == new_b2["id"]
+
+    dropped = put_definition([("A1", "申请", "仅保留申请")])
+    assert dropped.status_code == 200
+    new_a1 = dropped.json()["flow"]["steps"][0]
+    after_drop = client.get(f"/api/guide-archives/{archive['id']}", headers=viewer).json()
+    assert after_drop["step_id"] == new_a1["id"]
+    assert new_a1["code"] == "A1"
+
+
+def test_clone_flow_creates_draft_copy(client, admin_token, ledger):
+    headers = bearer(admin_token)
+    p1, p2, p3 = ledger["person_ids"]
+    unit_id = ledger["unit_id"]
+    domains = client.get("/api/domains", headers=headers).json()
+    delivery = next(d for d in domains if d["code"] == "it-resource-delivery")
+    created = client.post(
+        "/api/flows",
+        json={"domain_id": delivery["id"], "name": "可复制流程", "description": "原说明"},
+        headers=headers,
+    ).json()
+    flow_id = created["flow"]["id"]
+    saved = client.put(
+        f"/api/flows/{flow_id}/definition",
+        json={
+            "steps": [
+                {
+                    "code": "010",
+                    "name": "申请",
+                    "task": "发起",
+                    "guide": [
+                        {
+                            "system_name": "云盾",
+                            "action_text": "填单",
+                            "url": "http://example.local",
+                            "unit_id": unit_id,
+                            "person_ids": [p1, p2],
+                            "escalation_person_id": p3,
+                        }
+                    ],
+                }
+            ]
+        },
+        headers=headers,
+    )
+    assert saved.status_code == 200, saved.text
+    client.patch(f"/api/flows/{flow_id}", json={"status": "published"}, headers=headers)
+
+    cloned = client.post(f"/api/flows/{flow_id}/clone", headers=headers)
+    assert cloned.status_code == 200, cloned.text
+    copy = cloned.json()["flow"]
+    assert copy["id"] != flow_id
+    assert copy["status"] == "draft"
+    assert copy["name"] == "可复制流程（副本）"
+    assert copy["description"] == "原说明"
+    guide = copy["steps"][0]["guide"][0]
+    assert {p["name"] for p in guide["persons"]} == {"张三", "李四"}
+    assert guide["escalation"]["name"] == "王五"
+    assert guide["url"] == "http://example.local"
+
+    again = client.post(f"/api/flows/{flow_id}/clone", headers=headers).json()["flow"]
+    assert again["name"] == "可复制流程（副本2）"
+
+
+def test_viewer_cannot_clone_flow(client, viewer_token):
+    assert client.post("/api/flows/1/clone", headers=bearer(viewer_token)).status_code == 403

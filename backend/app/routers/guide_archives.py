@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.deps import get_current_user, get_db
 from app.models import Flow, GuideArchive, GuideEvent, GuideItem, Step, User
-from app.schemas import GuideArchiveOut, GuideArchiveSaveIn
+from app.schemas import GuideArchiveOut, GuideArchiveSaveIn, GuideResumeOut
 
 router = APIRouter(tags=["guide-archives"])
 
@@ -22,6 +22,23 @@ def _owned_archive(db: Session, archive_id: int, user: User) -> GuideArchive:
 @router.get("/guide-archives/{archive_id}", response_model=GuideArchiveOut)
 def get_archive_instance(archive_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return _owned_archive(db, archive_id, user)
+
+
+@router.delete("/guide-archives/{archive_id}")
+def delete_archive_instance(
+    archive_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    archive = _owned_archive(db, archive_id, user)
+    event_id = archive.event_id
+    db.delete(archive)
+    if event_id:
+        event = db.get(GuideEvent, event_id)
+        if event:
+            event.updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"ok": True}
 
 
 @router.put("/guide-archives/{archive_id}", response_model=GuideArchiveOut)
@@ -63,6 +80,32 @@ def _latest(db: Session, user_id: int, flow_id: int) -> GuideArchive | None:
         .order_by(GuideArchive.updated_at.desc(), GuideArchive.id.desc())
         .limit(1)
     )
+
+
+@router.get("/flows/{flow_id}/guide-resumes", response_model=list[GuideResumeOut])
+def list_resumes(
+    flow_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    rows = db.execute(
+        select(GuideArchive, GuideEvent)
+        .outerjoin(GuideEvent, GuideEvent.id == GuideArchive.event_id)
+        .where(GuideArchive.user_id == user.id, GuideArchive.flow_id == flow_id)
+        .order_by(GuideArchive.updated_at.desc(), GuideArchive.id.desc())
+    ).all()
+    return [
+        GuideResumeOut(
+            archive_id=archive.id,
+            event_id=event.id if event else archive.event_id,
+            event_title=event.title if event else None,
+            event_key=event.event_key if event else None,
+            external_ref=event.external_ref if event else None,
+            status=archive.status,
+            updated_at=archive.updated_at,
+        )
+        for archive, event in rows
+    ]
 
 
 @router.get("/flows/{flow_id}/guide-archive", response_model=GuideArchiveOut | None)

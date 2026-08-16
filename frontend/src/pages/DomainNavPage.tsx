@@ -42,6 +42,7 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
   const [form, setForm] = useState<DomainForm>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const publishedFlowCount = domains.reduce((sum, domain) => sum + domain.published_flow_count, 0);
 
   const load = useCallback(async () => {
     try {
@@ -126,26 +127,77 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
       title="数智运营中心平台运维团队平台组业务服务系统"
       subtitle="选择已投运业务域，进入流程办事地图。"
       wide
-      actions={
-          <>
-            <Link to="/my-guides" className="btn-primary">我的办理</Link>
-            {isAdmin && <>
-            <Link to="/ledgers" className="btn-ghost">
-              台账管理
-            </Link>
-            <Link to="/users" className="btn-ghost">用户管理</Link>
-            <button type="button" className="btn-ghost" onClick={openCreate}>
-              ＋ 新增业务域
-            </button>
-            </>}
-          </>
-      }
     >
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
       )}
 
-      <section className="relative mt-10">
+      <section className="mb-8 grid gap-4 lg:grid-cols-[1.45fr_1fr]" aria-label="业务工作台">
+        <Link
+          to="/my-guides"
+          className="group relative overflow-hidden rounded-2xl border border-csg-200 bg-gradient-to-br from-csg-700 via-csg-600 to-csg-500 p-5 text-white shadow-[0_16px_36px_rgba(7,95,165,0.22)] transition hover:-translate-y-0.5 hover:shadow-[0_20px_42px_rgba(7,95,165,0.28)] sm:p-6"
+        >
+          <div className="pointer-events-none absolute -right-12 -top-20 h-48 w-48 rounded-full border border-white/15" />
+          <div className="pointer-events-none absolute right-8 top-8 h-28 w-28 rounded-full border border-cyan-200/20" />
+          <div className="relative flex h-full min-h-36 flex-col justify-between">
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full bg-white/12 px-3 py-1 text-xs font-medium text-cyan-50 ring-1 ring-white/15">
+                <span className="h-1.5 w-1.5 rounded-full bg-cyan-300 shadow-[0_0_8px_rgba(103,232,249,0.9)]" />
+                个人业务工作区
+              </div>
+              <h2 className="mt-4 text-2xl font-semibold tracking-wide">继续我的办理</h2>
+              <p className="mt-2 max-w-lg text-sm leading-6 text-blue-50/85">集中查看办理事项、继续未完成流程，或回顾已经完成的操作步骤。</p>
+            </div>
+            <div className="mt-5 flex items-center justify-between">
+              <span className="text-xs text-blue-100">办理进度自动归入个人事项</span>
+              <span className="grid h-10 w-10 place-items-center rounded-full bg-white text-xl text-csg-700 shadow-lg transition group-hover:translate-x-1">→</span>
+            </div>
+          </div>
+        </Link>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div className="panel flex flex-col justify-between p-4">
+            <span className="text-xs font-medium text-slate-400">业务域</span>
+            <strong className="mt-2 text-3xl font-semibold text-csg-800">{domains.length}</strong>
+            <span className="mt-1 text-xs text-slate-500">个已投运领域</span>
+          </div>
+          <div className="panel flex flex-col justify-between p-4">
+            <span className="text-xs font-medium text-slate-400">流程资源</span>
+            <strong className="mt-2 text-3xl font-semibold text-csg-800">{publishedFlowCount}</strong>
+            <span className="mt-1 text-xs text-slate-500">条已发布流程</span>
+          </div>
+          {isAdmin ? (
+            <>
+              <Link to="/ledgers" className="group rounded-2xl border border-csg-100 bg-white p-4 shadow-sm transition hover:border-csg-300 hover:bg-csg-50">
+                <div className="flex items-center justify-between"><span className="grid h-9 w-9 place-items-center rounded-xl bg-csg-50 text-lg text-csg-700">▦</span><span className="text-csg-500 transition group-hover:translate-x-0.5">→</span></div>
+                <h3 className="mt-3 text-sm font-semibold text-slate-800">台账管理</h3>
+                <p className="mt-1 text-[11px] text-slate-400">团队、人员与负责人</p>
+              </Link>
+              <Link to="/users" className="group rounded-2xl border border-csg-100 bg-white p-4 shadow-sm transition hover:border-csg-300 hover:bg-csg-50">
+                <div className="flex items-center justify-between"><span className="grid h-9 w-9 place-items-center rounded-xl bg-csg-50 text-lg text-csg-700">◎</span><span className="text-csg-500 transition group-hover:translate-x-0.5">→</span></div>
+                <h3 className="mt-3 text-sm font-semibold text-slate-800">用户管理</h3>
+                <p className="mt-1 text-[11px] text-slate-400">账号、角色与使用状态</p>
+              </Link>
+            </>
+          ) : (
+            <div className="col-span-2 rounded-2xl border border-csg-100 bg-white p-4 text-sm text-slate-500 shadow-sm">
+              从下方选择业务域，查看完整流程地图和操作指引。
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section>
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.18em] text-csg-600"><span className="h-px w-6 bg-csg-400" /> BUSINESS DOMAINS</div>
+            <h2 className="mt-2 text-xl font-semibold text-slate-900">业务域导航</h2>
+            <p className="mt-1 text-sm text-slate-500">选择业务领域，进入流程列表、地图和带我办理。</p>
+          </div>
+          {isAdmin && <button type="button" className="btn-primary" onClick={openCreate}>＋ 新增业务域</button>}
+        </div>
+
+        <div className="relative">
         {/* 单线图母线 */}
         <div className="pointer-events-none absolute left-4 right-4 top-8 h-px bg-csg-200 sm:left-6 sm:right-6" />
         <div className="pointer-events-none absolute left-4 right-4 top-[30px] h-[3px] bg-gradient-to-r from-csg-100 via-csg-400 to-csg-100 opacity-70 sm:left-6 sm:right-6" />
@@ -203,6 +255,14 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
               )}
             </div>
           ))}
+        </div>
+        {domains.length === 0 && (
+          <div className="panel relative p-10 text-center">
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-csg-50 text-xl text-csg-600">◇</div>
+            <h3 className="mt-3 font-semibold text-slate-800">暂无业务域</h3>
+            <p className="mt-1 text-sm text-slate-500">{isAdmin ? "新建第一个业务域后即可开始配置流程。" : "请联系管理员配置业务域。"}</p>
+          </div>
+        )}
         </div>
       </section>
 

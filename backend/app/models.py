@@ -29,8 +29,12 @@ class Unit(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(100), unique=True, index=True)
     order_index: Mapped[int] = mapped_column(Integer, default=0)
+    leader_person_id: Mapped[int | None] = mapped_column(
+        ForeignKey("persons.id", ondelete="SET NULL"), nullable=True, index=True
+    )
 
-    persons: Mapped[list["Person"]] = relationship(back_populates="unit")
+    persons: Mapped[list["Person"]] = relationship(back_populates="unit", foreign_keys="Person.unit_id")
+    leader: Mapped["Person | None"] = relationship(foreign_keys=[leader_person_id])
 
 
 class Person(Base):
@@ -48,7 +52,7 @@ class Person(Base):
     source: Mapped[str] = mapped_column(String(20), default="manual")  # manual/directory
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
-    unit: Mapped["Unit | None"] = relationship(back_populates="persons")
+    unit: Mapped["Unit | None"] = relationship(back_populates="persons", foreign_keys=[unit_id])
     domains: Mapped[list["BusinessDomain"]] = relationship(
         secondary="person_domains", order_by="BusinessDomain.order_index"
     )
@@ -155,9 +159,13 @@ class GuideItem(Base):
     unit_id: Mapped[int | None] = mapped_column(
         ForeignKey("units.id", ondelete="RESTRICT"), index=True
     )  # 责任团队（台账 units）
+    escalation_person_id: Mapped[int | None] = mapped_column(
+        ForeignKey("persons.id", ondelete="SET NULL"), index=True
+    )  # 本条指定的直接领导；空则回落到责任团队负责人
 
     step: Mapped[Step] = relationship(back_populates="guide_items")
-    unit: Mapped["Unit | None"] = relationship()
+    unit: Mapped["Unit | None"] = relationship(foreign_keys=[unit_id])
+    escalation_person: Mapped["Person | None"] = relationship(foreign_keys=[escalation_person_id])
     persons: Mapped[list[Person]] = relationship(
         secondary=GuideItemPerson.__table__, order_by=Person.id
     )

@@ -56,6 +56,62 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   return JSON.parse(text) as T;
 }
 
+async function readError(res: Response, fallback: string): Promise<ApiError> {
+  let detail = fallback || res.statusText;
+  try {
+    const data: unknown = await res.json();
+    if (typeof data === "object" && data !== null && "detail" in data) {
+      const d = (data as { detail: unknown }).detail;
+      detail = typeof d === "string" ? d : JSON.stringify(d);
+    }
+  } catch {
+    // keep fallback
+  }
+  return new ApiError(res.status, detail);
+}
+
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+function handleUnauthorized(res: Response): void {
+  if (res.status === 401) {
+    clearToken();
+    window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
+  }
+}
+
+/** 带鉴权下载文件（模板 CSV 等）。 */
+export async function downloadFile(path: string, filename: string): Promise<void> {
+  const res = await fetch(`/api${path}`, { headers: authHeaders() });
+  handleUnauthorized(res);
+  if (res.status === 401) throw new ApiError(401, "未登录或登录已过期");
+  if (!res.ok) throw await readError(res, "下载失败");
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+/** multipart 上传单个 file 字段。 */
+export async function uploadFile<T>(path: string, file: File): Promise<T> {
+  const body = new FormData();
+  body.append("file", file);
+  const res = await fetch(`/api${path}`, { method: "POST", headers: authHeaders(), body });
+  handleUnauthorized(res);
+  if (res.status === 401) throw new ApiError(401, "未登录或登录已过期");
+  if (!res.ok) throw await readError(res, "上传失败");
+  return (await res.json()) as T;
+}
+
 /** multipart 上传（不设 Content-Type，由浏览器带 boundary） */
 export async function uploadImage(file: File): Promise<{ path: string }> {
   const headers: Record<string, string> = {};

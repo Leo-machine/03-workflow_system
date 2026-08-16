@@ -3,32 +3,13 @@ import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom"
 import { api } from "../api/client";
 import GuideList from "../components/GuideList";
 import PageShell from "../components/PageShell";
-import type { FlowDetail, GuideArchive, GuideEvent, Step, User } from "../types";
+import type { FlowDetail, GuideArchive, GuideEvent, GuideResume, Step, User } from "../types";
 
 type Progress = { step: number; guide: number };
 
 /** 无指引的环节仍占 1 个阅读位，便于推进 */
 function guideSlots(step: Step): number {
   return Math.max(step.guide.length, 1);
-}
-
-function loadProgress(key: string): Progress {
-  const raw = localStorage.getItem(key);
-  if (!raw) return { step: 0, guide: 0 };
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    if (parsed && typeof parsed === "object" && "step" in parsed) {
-      const obj = parsed as Progress;
-      return {
-        step: Number(obj.step) || 0,
-        guide: Number(obj.guide) || 0,
-      };
-    }
-  } catch {
-    // legacy: plain step index
-  }
-  const n = Number(raw);
-  return { step: Number.isFinite(n) ? n : 0, guide: 0 };
 }
 
 function flatOffset(steps: Step[], stepIndex: number, guideIndex: number): number {
@@ -41,38 +22,79 @@ function totalSlots(steps: Step[]): number {
   return steps.reduce((sum, s) => sum + guideSlots(s), 0);
 }
 
+function progressFromArchive(flow: FlowDetail, saved: GuideArchive): { progress: Progress; aligned: boolean } {
+  const stepIndex = flow.steps.findIndex((item) => item.id === saved.step_id);
+  if (stepIndex < 0) {
+    return { progress: { step: 0, guide: 0 }, aligned: false };
+  }
+  const guideIndex =
+    saved.guide_item_id === null
+      ? 0
+      : flow.steps[stepIndex].guide.findIndex((item) => item.id === saved.guide_item_id);
+  return { progress: { step: stepIndex, guide: Math.max(guideIndex, 0) }, aligned: true };
+}
+
+function formatResumeTime(value: string): string {
+  return new Date(value).toLocaleString("zh-CN", { hour12: false });
+}
+
 export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout: () => void }) {
   const { id } = useParams();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const archiveParam = searchParams.get("archive");
-  const creatingArchiveRef = useRef(false);
-  const storageKey = `flowmap-guide-progress:${id ?? "unknown"}`;
   const [flow, setFlow] = useState<FlowDetail | null>(null);
-  const [progress, setProgress] = useState<Progress>(() => loadProgress(storageKey));
+  const [progress, setProgress] = useState<Progress>({ step: 0, guide: 0 });
   const [archive, setArchive] = useState<GuideArchive | null>(null);
   const [event, setEvent] = useState<GuideEvent | null>(null);
+  const [resumes, setResumes] = useState<GuideResume[]>([]);
   const [titleDraft, setTitleDraft] = useState("");
   const [externalRefDraft, setExternalRefDraft] = useState("");
   const [namingOpen, setNamingOpen] = useState(false);
+  const [resumeOpen, setResumeOpen] = useState(false);
   const [saveNotice, setSaveNotice] = useState(false);
   const [completed, setCompleted] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [definitionNotice, setDefinitionNotice] = useState(false);
+  const archiveRef = useRef<GuideArchive | null>(null);
+  const stepsRef = useRef<Step[]>([]);
+  const latestSave = useRef<{ progress: Progress; status: "in_progress" | "completed" } | null>(null);
+  const saveQueue = useRef(Promise.resolve());
+
+  useEffect(() => {
+    archiveRef.current = archive;
+  }, [archive]);
 
   const load = useCallback(async () => {
     if (!id) return;
-    if (!archiveParam && creatingArchiveRef.current) return;
-    if (!archiveParam) creatingArchiveRef.current = true;
     try {
+      setError(null);
       const loadedFlow = await api<FlowDetail>(`/flows/${id}`);
       setFlow(loadedFlow);
       if (!archiveParam) {
-        const stamp = new Date().toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false });
+        const list = await api<GuideResume[]>(`/flows/${id}/guide-resumes`);
+        const active = list.filter((item) => item.status === "in_progress");
+        setResumes(active);
+        const stamp = new Date().toLocaleString("zh-CN", {
+          month: "2-digit",
+          day: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: false,
+        });
         setTitleDraft(`${loadedFlow.name}－${stamp}`);
-        setNamingOpen(true);
+        if (active.length > 0) {
+          setResumeOpen(true);
+          setNamingOpen(false);
+        } else {
+          setResumeOpen(false);
+          setNamingOpen(true);
+        }
         return;
       }
+      setResumeOpen(false);
+      setNamingOpen(false);
       const saved = await api<GuideArchive>(`/guide-archives/${archiveParam}`);
       if (saved.flow_id !== loadedFlow.id) throw new Error("该办理实例不属于当前流程");
       setArchive(saved);
@@ -82,31 +104,21 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
         setTitleDraft(loadedEvent.title);
         setExternalRefDraft(loadedEvent.external_ref ?? "");
       }
-      {
-        const stepIndex = loadedFlow.steps.findIndex((item) => item.id === saved.step_id);
-        if (stepIndex >= 0) {
-          const guideIndex = saved.guide_item_id === null
-            ? 0
-            : loadedFlow.steps[stepIndex].guide.findIndex((item) => item.id === saved.guide_item_id);
-          setProgress({ step: stepIndex, guide: Math.max(guideIndex, 0) });
-        }
-        setCompleted(saved.status === "completed");
-      }
+      const resolved = progressFromArchive(loadedFlow, saved);
+      setProgress(resolved.progress);
+      setDefinitionNotice(!resolved.aligned);
+      setCompleted(saved.status === "completed");
     } catch (err) {
-      creatingArchiveRef.current = false;
       setError(err instanceof Error ? err.message : "加载引导失败");
     }
-  }, [archiveParam, id, navigate]);
+  }, [archiveParam, id]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  useEffect(() => {
-    localStorage.setItem(storageKey, JSON.stringify(progress));
-  }, [progress, storageKey]);
-
   const steps = flow?.steps ?? [];
+  stepsRef.current = steps;
   const safeStep = steps.length ? Math.min(Math.max(progress.step, 0), steps.length - 1) : 0;
   const step = steps[safeStep] ?? null;
   const slotsInStep = step ? guideSlots(step) : 1;
@@ -128,13 +140,14 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
     [step]
   );
 
-  async function save(next: Progress, status: "in_progress" | "completed") {
-    if (!id || !archive || !steps[next.step]) return;
-    const targetStep = steps[next.step];
+  async function persist(next: Progress, status: "in_progress" | "completed") {
+    const current = archiveRef.current;
+    const currentSteps = stepsRef.current;
+    if (!current || !currentSteps[next.step]) return;
+    const targetStep = currentSteps[next.step];
     const targetGuide = targetStep.guide[next.guide];
-    setSaving(true);
     try {
-      const saved = await api<GuideArchive>(`/guide-archives/${archive.id}`, {
+      const saved = await api<GuideArchive>(`/guide-archives/${current.id}`, {
         method: "PUT",
         body: {
           step_id: targetStep.id,
@@ -142,12 +155,34 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
           status,
         },
       });
-      setArchive(saved);
+      if (archiveRef.current?.id === saved.id) {
+        setArchive(saved);
+        setError(null);
+      }
     } catch (err) {
-      setError(err instanceof Error ? `进度保存在本机；云端存档失败：${err.message}` : "云端存档失败");
-    } finally {
-      setSaving(false);
+      const message = err instanceof Error ? err.message : "云端存档失败";
+      if (message.includes("环节不属于当前流程") || message.includes("操作指引不属于当前环节")) {
+        await load();
+        setDefinitionNotice(true);
+        setError("流程定义已更新，已重新对齐到当前环节。请确认位置后再继续。");
+        return;
+      }
+      setError(`云端存档失败，请保持当前页面并重试保存：${message}`);
     }
+  }
+
+  function enqueueSave(next: Progress, status: "in_progress" | "completed") {
+    latestSave.current = { progress: next, status };
+    saveQueue.current = saveQueue.current
+      .then(async () => {
+        while (latestSave.current) {
+          const target = latestSave.current;
+          latestSave.current = null;
+          await persist(target.progress, target.status);
+        }
+      })
+      .catch(() => undefined);
+    return saveQueue.current;
   }
 
   async function createNamedArchive() {
@@ -155,16 +190,34 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
     setSaving(true);
     try {
       const createdEvent = await api<GuideEvent>("/guide-events", {
-        method: "POST", body: { title: titleDraft.trim(), external_ref: externalRefDraft.trim() || null },
+        method: "POST",
+        body: { title: titleDraft.trim(), external_ref: externalRefDraft.trim() || null, flow_id: flow.id },
       });
-      const saved = await api<GuideArchive>(`/guide-events/${createdEvent.id}/flows`, {
-        method: "POST", body: { flow_id: flow.id },
-      });
-      setEvent(createdEvent); setArchive(saved); setNamingOpen(false);
+      const createdFlow = createdEvent.flows[0];
+      if (!createdFlow) throw new Error("办理事件未能创建流程存档");
+      const saved = await api<GuideArchive>(`/guide-archives/${createdFlow.archive_id}`);
+      setEvent(createdEvent);
+      setArchive(saved);
+      setNamingOpen(false);
+      setResumeOpen(false);
       setProgress({ step: 0, guide: 0 });
+      setCompleted(false);
       navigate(`/flows/${id}/guide?archive=${saved.id}`, { replace: true });
-    } catch (err) { setError(err instanceof Error ? err.message : "创建存档失败"); }
-    finally { setSaving(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "创建存档失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function continueResume(item: GuideResume) {
+    setResumeOpen(false);
+    navigate(`/flows/${id}/guide?archive=${item.archive_id}`, { replace: true });
+  }
+
+  function startNewFromResume() {
+    setResumeOpen(false);
+    setNamingOpen(true);
   }
 
   async function manualSave() {
@@ -172,20 +225,25 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
     setSaving(true);
     try {
       const updated = await api<GuideEvent>(`/guide-events/${event.id}`, {
-        method: "PATCH", body: { title: titleDraft.trim(), external_ref: externalRefDraft.trim() },
+        method: "PATCH",
+        body: { title: titleDraft.trim(), external_ref: externalRefDraft.trim() },
       });
       setEvent(updated);
-      await save({ step: safeStep, guide: safeGuide }, completed ? "completed" : "in_progress");
+      await enqueueSave({ step: safeStep, guide: safeGuide }, completed ? "completed" : "in_progress");
       setSaveNotice(true);
       window.setTimeout(() => setSaveNotice(false), 2500);
-    } catch (err) { setError(err instanceof Error ? err.message : "保存失败"); }
-    finally { setSaving(false); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
   }
 
   function go(next: Progress) {
+    setError(null);
     setCompleted(false);
     setProgress(next);
-    void save(next, "in_progress");
+    void enqueueSave(next, "in_progress");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
@@ -206,11 +264,19 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
       if (!event || !flow) return;
       setSaving(true);
       try {
-        const fresh = await api<GuideArchive>(`/guide-events/${event.id}/flows`, { method: "POST", body: { flow_id: flow.id } });
-        setArchive(fresh); setCompleted(false); setProgress({ step: 0, guide: 0 });
+        const fresh = await api<GuideArchive>(`/guide-events/${event.id}/flows`, {
+          method: "POST",
+          body: { flow_id: flow.id },
+        });
+        setArchive(fresh);
+        setCompleted(false);
+        setProgress({ step: 0, guide: 0 });
         navigate(`/flows/${id}/guide?archive=${fresh.id}`, { replace: true });
-      } catch (err) { setError(err instanceof Error ? err.message : "重新开始失败"); }
-      finally { setSaving(false); }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "重新开始失败");
+      } finally {
+        setSaving(false);
+      }
       return;
     }
     if (!isLastGuideInStep) {
@@ -222,7 +288,12 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
       return;
     }
     setCompleted(true);
-    void save({ step: safeStep, guide: safeGuide }, "completed");
+    setSaving(true);
+    try {
+      await enqueueSave({ step: safeStep, guide: safeGuide }, "completed");
+    } finally {
+      setSaving(false);
+    }
   }
 
   /** 仅允许跳到已完成环节或当前环节（从该环节第一条指引开始） */
@@ -248,13 +319,20 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
       title={flow ? `${flow.name} · 带我办理` : "带我办理"}
       subtitle="按操作指引逐条办理：完成当前环节的全部指引后，再进入下一环节。"
       backTo={id ? `/flows/${id}` : "/"}
-      backLabel="返回全流程"
+      backLabel="返回流程地图"
       actions={<><Link to="/my-guides" className="btn-ghost">我的办理</Link>{id && <Link to={`/flows/${id}`} className="btn-ghost">查看全流程</Link>}</>}
       compact
     >
-      {error && <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>}
+      {error && (
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
+      )}
+      {definitionNotice && (
+        <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          流程定义已更新。已按环节编号尽量对齐到当前位置，请确认后再继续办理。
+        </div>
+      )}
 
-      {flow && step && (
+      {flow && step && archive && (
         <div className="mx-auto max-w-4xl">
           <section className="panel overflow-hidden p-3 sm:p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -404,6 +482,45 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
             <button type="button" className="btn-primary" disabled={saving} onClick={goNext}>
               {saving ? "正在保存…" : nextLabel}
             </button>
+          </div>
+        </div>
+      )}
+      {resumeOpen && flow && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/35 p-4">
+          <div className="panel w-full max-w-md p-5">
+            <div className="text-xs font-semibold text-csg-600">继续办理</div>
+            <h3 className="mt-1 text-lg font-semibold text-slate-900">该流程已有进行中的事项</h3>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              选择继续上次进度，或新建一个独立事项。同一流程可以同时办理多件。
+            </p>
+            <div className="mt-4 max-h-64 space-y-2 overflow-y-auto">
+              {resumes.map((item) => (
+                <button
+                  key={item.archive_id}
+                  type="button"
+                  onClick={() => continueResume(item)}
+                  className="w-full rounded-xl border border-slate-100 bg-white p-3 text-left transition hover:border-csg-300 hover:shadow-sm"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-sm font-medium text-slate-800">{item.event_title || "未命名事项"}</span>
+                    <span className="shrink-0 rounded-full bg-csg-50 px-2 py-0.5 text-[10px] text-csg-700">继续办理</span>
+                  </div>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {item.event_key ? `${item.event_key} · ` : ""}
+                    {item.external_ref ? `工单 ${item.external_ref} · ` : ""}
+                    更新于 {formatResumeTime(item.updated_at)}
+                  </p>
+                </button>
+              ))}
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" className="btn-ghost" onClick={() => navigate(id ? `/flows/${id}` : "/")}>
+                取消
+              </button>
+              <button type="button" className="btn-primary" onClick={startNewFromResume}>
+                新建事项
+              </button>
+            </div>
           </div>
         </div>
       )}

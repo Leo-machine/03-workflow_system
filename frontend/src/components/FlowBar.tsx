@@ -55,7 +55,7 @@ export default function FlowBar({ steps, selected, onSelect }: Props) {
                 {st.name}
               </div>
               <div className="mt-1 text-[11px] text-slate-400 text-center">
-                {parallel ? `并行 ${st.persons.length} 人` : firstPerson?.name ?? "未设人"}
+                {parallel ? `责任 ${st.persons.length} 人` : firstPerson ? `责任 ${firstPerson.name}` : "未设责任人"}
               </div>
             </button>
           </Fragment>

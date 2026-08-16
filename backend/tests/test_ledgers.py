@@ -29,6 +29,106 @@ def test_unit_crud_and_logs(client, admin_token):
     assert client.delete(f"/api/units/{unit_id}", headers=headers).status_code == 200
 
 
+def test_unit_leader_and_person_delete_clears_contacts(client, admin_token, ledger):
+    headers = bearer(admin_token)
+    unit_id = ledger["unit_id"]
+    p1, p2, p3 = ledger["person_ids"]
+    r = client.put(
+        f"/api/units/{unit_id}",
+        json={"name": "平台运维组", "order_index": 0, "leader_person_id": p2},
+        headers=headers,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["leader"]["name"] == "李四"
+    logs = client.get("/api/change-logs", headers=headers).json()
+    assert any(log["entity_type"] == "unit" and log["field"] == "leader" for log in logs)
+
+    domains = client.get("/api/domains", headers=headers).json()
+    delivery = next(d for d in domains if d["code"] == "it-resource-delivery")
+    flow_id = client.post(
+        "/api/flows",
+        json={"domain_id": delivery["id"], "name": "升级联系人流程"},
+        headers=headers,
+    ).json()["flow"]["id"]
+    saved = client.put(
+        f"/api/flows/{flow_id}/definition",
+        json={
+            "steps": [
+                {
+                    "code": "010",
+                    "name": "申请",
+                    "guide": [
+                        {
+                            "system_name": "云盾",
+                            "action_text": "填单",
+                            "unit_id": unit_id,
+                            "person_ids": [p1],
+                            "escalation_person_id": p3,
+                        }
+                    ],
+                }
+            ]
+        },
+        headers=headers,
+    )
+    assert saved.status_code == 200, saved.text
+    guide = saved.json()["flow"]["steps"][0]["guide"][0]
+    assert guide["escalation"]["name"] == "王五"
+    assert guide["direct_leader"]["name"] == "王五"
+    assert guide["unit"]["leader"]["name"] == "李四"
+
+    renamed = client.put(
+        f"/api/units/{unit_id}",
+        json={"name": "平台运维组", "order_index": 0},
+        headers=headers,
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["leader"]["id"] == p2
+
+    esc = client.post(
+        "/api/persons", json={"name": "升级专员", "unit_id": unit_id, "title": "经理"}, headers=headers
+    ).json()
+    assert client.put(
+        f"/api/flows/{flow_id}/definition",
+        json={
+            "steps": [
+                {
+                    "code": "010",
+                    "name": "申请",
+                    "guide": [
+                        {
+                            "system_name": "云盾",
+                            "action_text": "填单",
+                            "unit_id": unit_id,
+                            "person_ids": [p1],
+                            "escalation_person_id": esc["id"],
+                        }
+                    ],
+                }
+            ]
+        },
+        headers=headers,
+    ).status_code == 200
+    assert client.delete(f"/api/persons/{esc['id']}", headers=headers).status_code == 200
+    after = client.get(f"/api/flows/{flow_id}", headers=headers).json()
+    assert after["steps"][0]["guide"][0]["escalation"] is None
+    assert after["steps"][0]["guide"][0]["direct_leader"]["name"] == "李四"
+
+    extra = client.post(
+        "/api/persons", json={"name": "临时负责人", "unit_id": unit_id, "title": "代理"}, headers=headers
+    ).json()
+    client.put(
+        f"/api/units/{unit_id}",
+        json={"name": "平台运维组", "order_index": 0, "leader_person_id": extra["id"]},
+        headers=headers,
+    )
+    assert client.delete(f"/api/persons/{extra['id']}", headers=headers).status_code == 200
+    unit = next(u for u in client.get("/api/units", headers=headers).json() if u["id"] == unit_id)
+    assert unit["leader"] is None
+
+    client.delete(f"/api/flows/{flow_id}", headers=headers)
+
+
 def test_unit_delete_guarded_by_person_refs(client, admin_token, ledger):
     headers = bearer(admin_token)
     unit_id = ledger["unit_ids"][0]

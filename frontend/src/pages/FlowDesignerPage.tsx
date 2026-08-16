@@ -55,6 +55,7 @@ function emptyGuide(): GuideItemDraft {
     note: "",
     unit_id: null,
     person_ids: [],
+    escalation_person_id: null,
   };
 }
 
@@ -74,6 +75,7 @@ function fromFlow(flow: FlowDetail): { steps: StepDefinitionDraft[]; migrated: b
       note: g.note ?? "",
       unit_id: g.unit?.id ?? null,
       person_ids: g.persons.map((p) => p.id),
+      escalation_person_id: g.escalation?.id ?? null,
     }));
 
     const assignedIds = new Set(guides.flatMap((g) => g.person_ids));
@@ -163,6 +165,7 @@ function toDefinitionBody(steps: StepDefinitionDraft[]) {
         note: g.note.trim() || null,
         unit_id: g.unit_id,
         person_ids: g.person_ids,
+        escalation_person_id: g.escalation_person_id,
       })),
     })),
   };
@@ -187,12 +190,14 @@ function SortableStepRow({
   selected,
   onSelect,
   onRemove,
+  onCopy,
   onChange,
 }: {
   step: StepDefinitionDraft;
   selected: boolean;
   onSelect: () => void;
   onRemove: () => void;
+  onCopy: () => void;
   onChange: (patch: Partial<StepDefinitionDraft>) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -226,6 +231,14 @@ function SortableStepRow({
         <button type="button" onClick={onSelect} className="min-w-0 flex-1 py-2.5 pr-2 text-left">
           <div className="mono text-xs text-csg-500">{step.code || "编号"}</div>
           <div className="truncate text-sm font-medium text-slate-800">{step.name || "未命名环节"}</div>
+        </button>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="px-1.5 text-xs text-slate-400 hover:text-csg-700"
+          title="复制环节"
+        >
+          复制
         </button>
         <button
           type="button"
@@ -263,12 +276,13 @@ function SortableStepRow({
   );
 }
 
-/** 指引责任：先选责任团队，再选该团队下的责任人（数据来自台账） */
+/** 指引角色：责任团队 / 责任人 / 直接领导（数据来自台账） */
 function GuideAssigneeEditor({
   persons,
   units,
   unitId,
   personIds,
+  escalationPersonId,
   onChange,
   onLedgerRefresh,
 }: {
@@ -276,7 +290,12 @@ function GuideAssigneeEditor({
   units: Unit[];
   unitId: number | null;
   personIds: number[];
-  onChange: (patch: { unit_id?: number | null; person_ids?: number[] }) => void;
+  escalationPersonId: number | null;
+  onChange: (patch: {
+    unit_id?: number | null;
+    person_ids?: number[];
+    escalation_person_id?: number | null;
+  }) => void;
   onLedgerRefresh: () => void;
 }) {
   const teamPeople = useMemo(
@@ -298,7 +317,7 @@ function GuideAssigneeEditor({
   return (
     <div className="mt-2 space-y-2 rounded-md border border-slate-100 bg-slate-50/80 p-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="text-xs font-medium text-slate-600">责任团队 / 责任人（台账）</span>
+        <span className="text-xs font-medium text-slate-600">流程角色（台账）</span>
         <Link to="/ledgers" className="text-[11px] text-csg-600 hover:text-csg-800">
           去台账管理 →
         </Link>
@@ -308,7 +327,7 @@ function GuideAssigneeEditor({
         value={unitId ?? ""}
         onChange={(e) => {
           const next = e.target.value === "" ? null : Number(e.target.value);
-          onChange({ unit_id: next, person_ids: [] }); // 换团队清空已选人
+          onChange({ unit_id: next, person_ids: [] }); // 换团队清空已选责任人；直接领导可另指定
         }}
       >
         <option value="">先选择责任团队…</option>
@@ -318,51 +337,80 @@ function GuideAssigneeEditor({
           </option>
         ))}
       </select>
-      <select
-        className="focus-csg w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm disabled:bg-slate-100"
-        value=""
-        disabled={unitId === null}
-        onChange={(e) => {
-          const id = Number(e.target.value);
-          if (!id || personIds.includes(id)) return;
-          onChange({ person_ids: [...personIds, id] });
-        }}
-      >
-        <option value="">
-          {unitId === null
-            ? "请先选择责任团队"
-            : candidates.length
-              ? "再选择责任人（可多选）…"
-              : "该团队暂无在职人员"}
-        </option>
-        {candidates.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-            {p.title ? `（${p.title}）` : ""}
+      <div>
+        <label className="mb-1 block text-[11px] font-medium text-slate-500">责任人</label>
+        <select
+          className="focus-csg w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm disabled:bg-slate-100"
+          value=""
+          disabled={unitId === null}
+          onChange={(e) => {
+            const id = Number(e.target.value);
+            if (!id || personIds.includes(id)) return;
+            onChange({ person_ids: [...personIds, id] });
+          }}
+        >
+          <option value="">
+            {unitId === null
+              ? "请先选择责任团队"
+              : candidates.length
+                ? "选择责任人（可多选）…"
+                : "该团队暂无在职人员"}
           </option>
-        ))}
-      </select>
-      {selectedPeople.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5">
-          {selectedPeople.map((person) => (
-            <span
-              key={person.id}
-              className="inline-flex items-center gap-1.5 rounded-full bg-csg-50 px-2.5 py-1 text-xs font-medium text-csg-800 ring-1 ring-csg-200"
-            >
-              {person.name}
-              <button
-                type="button"
-                className="text-csg-500 hover:text-red-600"
-                onClick={() => onChange({ person_ids: personIds.filter((id) => id !== person.id) })}
-              >
-                ×
-              </button>
-            </span>
+          {candidates.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+              {p.title ? `（${p.title}）` : ""}
+            </option>
           ))}
-        </div>
-      ) : (
-        <p className="text-[11px] text-slate-400">尚未选择责任人。</p>
-      )}
+        </select>
+        {selectedPeople.length > 0 ? (
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {selectedPeople.map((person) => (
+              <span
+                key={person.id}
+                className="inline-flex items-center gap-1.5 rounded-full bg-csg-50 px-2.5 py-1 text-xs font-medium text-csg-800 ring-1 ring-csg-200"
+              >
+                {person.name}
+                <button
+                  type="button"
+                  className="text-csg-500 hover:text-red-600"
+                  onClick={() => onChange({ person_ids: personIds.filter((id) => id !== person.id) })}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-1 text-[11px] text-slate-400">尚未选择责任人。</p>
+        )}
+      </div>
+      <div>
+        <label className="mb-1 block text-[11px] font-medium text-slate-500">直接领导</label>
+        <select
+          className="focus-csg w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
+          value={escalationPersonId ?? ""}
+          onChange={(e) =>
+            onChange({ escalation_person_id: e.target.value === "" ? null : Number(e.target.value) })
+          }
+        >
+          <option value="">
+            {units.find((u) => u.id === unitId)?.leader
+              ? `默认：团队负责人 ${units.find((u) => u.id === unitId)?.leader?.name}`
+              : "默认：该团队负责人（未指定则不显示）"}
+          </option>
+          {persons
+            .filter((p) => p.active || p.id === escalationPersonId)
+            .map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+                {p.title ? `（${p.title}）` : ""}
+                {p.unit?.name ? ` · ${p.unit.name}` : ""}
+              </option>
+            ))}
+        </select>
+        <p className="mt-1 text-[11px] text-slate-400">办事地图上的第二个角色；不必与责任人同团队。</p>
+      </div>
       <button type="button" className="text-[11px] text-slate-500 hover:text-csg-700" onClick={onLedgerRefresh}>
         刷新台账数据
       </button>
@@ -395,6 +443,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
   );
 
   const selected = steps.find((s) => s.clientKey === selectedKey) ?? null;
+  const locked = status === "published";
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -471,6 +520,26 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
     setSelectedKey(step.clientKey);
   }
 
+  function copyStep(key: string) {
+    const source = steps.find((s) => s.clientKey === key);
+    if (!source) return;
+    const copy: StepDefinitionDraft = {
+      ...source,
+      clientKey: newKey(),
+      code: `${source.code || "010"}-副本`.slice(0, 20),
+      name: source.name.endsWith("（副本）") ? source.name : `${source.name}（副本）`,
+      guide: source.guide.map((g) => ({ ...g, person_ids: [...g.person_ids] })),
+    };
+    setSteps((prev) => {
+      const index = prev.findIndex((s) => s.clientKey === key);
+      if (index < 0) return prev;
+      const next = [...prev];
+      next.splice(index + 1, 0, copy);
+      return next;
+    });
+    setSelectedKey(copy.clientKey);
+  }
+
   function removeStep(key: string) {
     setSteps((prev) => {
       const next = prev.filter((s) => s.clientKey !== key);
@@ -481,7 +550,11 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
 
   async function saveAll() {
     if (!id) return;
-    const validationError = validateSteps(steps, { requireNonEmpty: false });
+    if (locked && !dirtyMeta) {
+      setToast("已发布流程的环节定义已冻结，请先取消发布再修改");
+      return;
+    }
+    const validationError = locked ? null : validateSteps(steps, { requireNonEmpty: false });
     if (validationError) {
       setToast(validationError);
       return;
@@ -497,6 +570,10 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
         setDirtyMeta(false);
         metaSaved = true;
       }
+      if (locked) {
+        setToast("名称/说明已保存");
+        return;
+      }
       const result = await api<FlowMutationResult>(`/flows/${id}/definition`, {
         method: "PUT",
         body: toDefinitionBody(steps),
@@ -506,7 +583,6 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
       setStatus(result.flow.status);
       const { steps: drafted } = fromFlow(result.flow);
       setSteps(drafted);
-      // 保存后 key 变为 existing-*，按原位置恢复选中
       const prevIndex = selected ? steps.findIndex((s) => s.clientKey === selected.clientKey) : -1;
       const restored = prevIndex >= 0 ? drafted[prevIndex]?.clientKey : undefined;
       setSelectedKey(restored ?? drafted[0]?.clientKey ?? null);
@@ -528,6 +604,13 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
         setToast(validationError);
         return;
       }
+    } else if (
+      !(await dialog.confirm(
+        "取消发布后，未在办理中的普通用户将看不到该流程。正在办理的人仍可继续当前存档。",
+        { title: "取消发布" }
+      ))
+    ) {
+      return;
     }
     setSaving(true);
     try {
@@ -589,8 +672,8 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
       wide
       actions={
         <>
-          <button type="button" className="btn-ghost" disabled={saving} onClick={() => void saveAll()}>
-            {saving ? "保存中…" : "保存定义"}
+          <button type="button" className="btn-ghost" disabled={saving || (locked && !dirtyMeta)} onClick={() => void saveAll()}>
+            {saving ? "保存中…" : locked ? "保存名称/说明" : "保存定义"}
           </button>
           <button type="button" className="btn-primary" disabled={saving} onClick={() => void togglePublish()}>
             {status === "published" ? "取消发布" : "发布"}
@@ -604,6 +687,11 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
 
       {!loadError && (
         <>
+          {locked && (
+            <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              已发布流程的环节定义已冻结。名称和说明仍可修改；要改环节请先取消发布。
+            </div>
+          )}
           <div className="panel mb-5 grid gap-4 p-5 sm:grid-cols-2">
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-500">流程名称</label>
@@ -660,7 +748,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
             </div>
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-[280px_1fr]">
+          <div className={"relative grid gap-5 lg:grid-cols-[280px_1fr] " + (locked ? "pointer-events-none opacity-70" : "")}>
             <aside className="panel p-4">
               <div className="mb-3 flex items-center justify-between">
                 <h2 className="text-sm font-semibold text-slate-800">环节列表</h2>
@@ -678,6 +766,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                         selected={step.clientKey === selectedKey}
                         onSelect={() => setSelectedKey(step.clientKey)}
                         onRemove={() => removeStep(step.clientKey)}
+                        onCopy={() => copyStep(step.clientKey)}
                         onChange={(patch) =>
                           setSteps((prev) =>
                             prev.map((s) => (s.clientKey === step.clientKey ? { ...s, ...patch } : s))
@@ -769,6 +858,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                             units={units}
                             unitId={g.unit_id}
                             personIds={g.person_ids}
+                            escalationPersonId={g.escalation_person_id}
                             onChange={(patch) => updateGuide(index, patch)}
                             onLedgerRefresh={() => void refreshLedgers()}
                           />
@@ -782,7 +872,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                         </div>
                       ))}
                       {selected.guide.length === 0 && (
-                        <p className="text-xs text-slate-400">本环节暂无指引。责任团队、责任人与图示均在指引条目中配置。</p>
+                        <p className="text-xs text-slate-400">本环节暂无指引。责任人、直接领导与图示均在指引条目中配置。</p>
                       )}
                     </div>
                   </div>

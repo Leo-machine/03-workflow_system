@@ -1,6 +1,6 @@
 """人员信息台账 CRUD：管理员维护；环节展示实时解析本表，改一处处处生效。"""
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.deps import get_current_user, get_db, require_admin
@@ -16,11 +16,18 @@ from app.schemas import (
 router = APIRouter(tags=["persons"])
 
 
+def _person_eager():
+    return (
+        selectinload(Person.unit).selectinload(Unit.leader),
+        selectinload(Person.domains),
+    )
+
+
 def _get_person(db: Session, person_id: int) -> Person:
     person = db.scalar(
         select(Person)
         .where(Person.id == person_id)
-        .options(selectinload(Person.unit), selectinload(Person.domains))
+        .options(*_person_eager())
     )
     if person is None:
         raise HTTPException(status_code=404, detail="人员不存在")
@@ -61,7 +68,7 @@ def list_persons(db: Session = Depends(get_db), _: User = Depends(get_current_us
     """人员台账（含单位与可服务业务域）：设计器环节内选人、办事地图展示共用。"""
     return db.scalars(
         select(Person)
-        .options(selectinload(Person.unit), selectinload(Person.domains))
+        .options(*_person_eager())
         .order_by(Person.id)
     ).all()
 
@@ -111,6 +118,12 @@ def update_person(
     if name != person.name:
         changes.append(("name", person.name, name))
     if body.unit_id != person.unit_id:
+        led_unit = db.scalar(select(Unit).where(Unit.leader_person_id == person_id))
+        if led_unit is not None:
+            raise HTTPException(
+                status_code=422,
+                detail=f"该人员当前是「{led_unit.name}」团队负责人，请先为该团队更换负责人",
+            )
         # 已挂在指引上的责任人：调单位不得破坏「人必须属于所选责任团队」
         bound = db.execute(
             select(GuideItem.id, GuideItem.unit_id, GuideItem.system_name)
@@ -140,6 +153,13 @@ def update_person(
     if body.contact != person.contact:
         changes.append(("contact", person.contact, body.contact))
     if body.active != person.active:
+        if not body.active:
+            led_unit = db.scalar(select(Unit).where(Unit.leader_person_id == person_id))
+            if led_unit is not None:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"该人员当前是「{led_unit.name}」团队负责人，请先为该团队更换负责人",
+                )
         changes.append(("active", str(person.active), str(body.active)))
 
     new_domains = _resolve_domains(db, body.domain_ids)
@@ -193,6 +213,10 @@ def delete_person(
         detail = f"该人员仍被 {refs} 个环节引用，请先在流程设计器中移除"
     if refs:
         raise HTTPException(status_code=422, detail=detail)
+    db.execute(update(Unit).where(Unit.leader_person_id == person_id).values(leader_person_id=None))
+    db.execute(
+        update(GuideItem).where(GuideItem.escalation_person_id == person_id).values(escalation_person_id=None)
+    )
     _add_ledger_log(db, person=person, field="delete", admin=admin, old_name=person.name)
     db.delete(person)
     db.commit()
