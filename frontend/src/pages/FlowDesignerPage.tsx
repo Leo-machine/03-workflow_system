@@ -191,6 +191,8 @@ function SortableStepRow({
   onSelect,
   onRemove,
   onCopy,
+  onInsertBefore,
+  onInsertAfter,
   onChange,
 }: {
   step: StepDefinitionDraft;
@@ -198,6 +200,8 @@ function SortableStepRow({
   onSelect: () => void;
   onRemove: () => void;
   onCopy: () => void;
+  onInsertBefore: () => void;
+  onInsertAfter: () => void;
   onChange: (patch: Partial<StepDefinitionDraft>) => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
@@ -251,6 +255,10 @@ function SortableStepRow({
       </div>
       {selected && (
         <div className="space-y-1.5 border-t border-slate-100 px-2.5 pb-2.5 pt-2">
+          <div className="mb-2 grid grid-cols-2 gap-1.5">
+            <button type="button" className="rounded-md border border-dashed border-csg-200 bg-csg-50/50 px-2 py-1 text-[11px] font-medium text-csg-700 hover:border-csg-400 hover:bg-csg-50" onClick={onInsertBefore}>＋ 前插环节</button>
+            <button type="button" className="rounded-md border border-dashed border-csg-200 bg-csg-50/50 px-2 py-1 text-[11px] font-medium text-csg-700 hover:border-csg-400 hover:bg-csg-50" onClick={onInsertAfter}>＋ 后插环节</button>
+          </div>
           <input
             value={step.code}
             onChange={(e) => onChange({ code: e.target.value })}
@@ -313,6 +321,23 @@ function GuideAssigneeEditor({
     [persons, personIds]
   );
   const candidates = teamPeople.filter((p) => !personIds.includes(p.id));
+  const leaderCandidates = useMemo(
+    () =>
+      persons.filter(
+        (p) =>
+          unitId !== null &&
+          p.unit?.id === unitId &&
+          (p.active || p.id === escalationPersonId)
+      ),
+    [persons, unitId, escalationPersonId]
+  );
+  const selectedLeader = useMemo(
+    () => persons.find((p) => p.id === escalationPersonId) ?? null,
+    [persons, escalationPersonId]
+  );
+  const leaderOutsideTeam = Boolean(
+    selectedLeader && (unitId === null || selectedLeader.unit?.id !== unitId)
+  );
 
   return (
     <div className="mt-2 space-y-2 rounded-md border border-slate-100 bg-slate-50/80 p-2.5">
@@ -327,7 +352,7 @@ function GuideAssigneeEditor({
         value={unitId ?? ""}
         onChange={(e) => {
           const next = e.target.value === "" ? null : Number(e.target.value);
-          onChange({ unit_id: next, person_ids: [] }); // 换团队清空已选责任人；直接领导可另指定
+          onChange({ unit_id: next, person_ids: [], escalation_person_id: null });
         }}
       >
         <option value="">先选择责任团队…</option>
@@ -388,28 +413,32 @@ function GuideAssigneeEditor({
       <div>
         <label className="mb-1 block text-[11px] font-medium text-slate-500">直接领导</label>
         <select
-          className="focus-csg w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
+          className="focus-csg w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm disabled:bg-slate-100"
           value={escalationPersonId ?? ""}
+          disabled={unitId === null}
           onChange={(e) =>
             onChange({ escalation_person_id: e.target.value === "" ? null : Number(e.target.value) })
           }
         >
           <option value="">
-            {units.find((u) => u.id === unitId)?.leader
+            {unitId === null
+              ? "请先选择责任团队"
+              : units.find((u) => u.id === unitId)?.leader
               ? `默认：团队负责人 ${units.find((u) => u.id === unitId)?.leader?.name}`
               : "默认：该团队负责人（未指定则不显示）"}
           </option>
-          {persons
-            .filter((p) => p.active || p.id === escalationPersonId)
-            .map((p) => (
+          {leaderCandidates.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
                 {p.title ? `（${p.title}）` : ""}
-                {p.unit?.name ? ` · ${p.unit.name}` : ""}
               </option>
             ))}
         </select>
-        <p className="mt-1 text-[11px] text-slate-400">办事地图上的第二个角色；不必与责任人同团队。</p>
+        {leaderOutsideTeam ? (
+          <p className="mt-1 text-[11px] font-medium text-red-600">当前直接领导不属于责任团队，请重新选择。</p>
+        ) : (
+          <p className="mt-1 text-[11px] text-slate-400">仅可选择当前责任团队成员；留空时默认取团队负责人。</p>
+        )}
       </div>
       <button type="button" className="text-[11px] text-slate-500 hover:text-csg-700" onClick={onLedgerRefresh}>
         刷新台账数据
@@ -436,6 +465,8 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
   const [toast, setToast] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirtyMeta, setDirtyMeta] = useState(false);
+  const [guideEditMode, setGuideEditMode] = useState<"paged" | "continuous">("paged");
+  const [guidePage, setGuidePage] = useState(0);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
@@ -444,6 +475,13 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
 
   const selected = steps.find((s) => s.clientKey === selectedKey) ?? null;
   const locked = status === "published";
+  const safeGuidePage = selected?.guide.length ? Math.min(guidePage, selected.guide.length - 1) : 0;
+  const guideEntries = (selected?.guide ?? []).map((guide, index) => ({ guide, index }));
+  const visibleGuideEntries = guideEditMode === "paged" ? guideEntries.slice(safeGuidePage, safeGuidePage + 1) : guideEntries;
+
+  useEffect(() => {
+    setGuidePage(0);
+  }, [selectedKey]);
 
   const load = useCallback(async () => {
     if (!id) return;
@@ -518,6 +556,38 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
     const step = emptyStep(steps.length);
     setSteps((prev) => [...prev, step]);
     setSelectedKey(step.clientKey);
+  }
+
+  function insertStep(relativeKey: string, position: "before" | "after") {
+    const relativeIndex = steps.findIndex((step) => step.clientKey === relativeKey);
+    if (relativeIndex < 0) return;
+    const insertIndex = relativeIndex + (position === "after" ? 1 : 0);
+    const previousCode = Number.parseInt(steps[insertIndex - 1]?.code ?? "", 10);
+    const nextCode = Number.parseInt(steps[insertIndex]?.code ?? "", 10);
+    let suggested = (insertIndex + 1) * 10;
+    if (Number.isFinite(previousCode) && Number.isFinite(nextCode) && nextCode - previousCode > 1) {
+      suggested = Math.floor((previousCode + nextCode) / 2);
+    } else if (Number.isFinite(previousCode)) {
+      suggested = previousCode + 10;
+    } else if (Number.isFinite(nextCode)) {
+      suggested = Math.max(1, nextCode - 10);
+    }
+    const inserted = { ...emptyStep(insertIndex), code: String(suggested).padStart(3, "0"), name: "插入环节" };
+    setSteps((previous) => {
+      const next = [...previous];
+      next.splice(insertIndex, 0, inserted);
+      return next;
+    });
+    setSelectedKey(inserted.clientKey);
+  }
+
+  function insertGuide(index: number, position: "before" | "after") {
+    if (!selected) return;
+    const insertIndex = index + (position === "after" ? 1 : 0);
+    const next = [...selected.guide];
+    next.splice(insertIndex, 0, emptyGuide());
+    updateSelected({ guide: next });
+    setGuidePage(insertIndex);
   }
 
   function copyStep(key: string) {
@@ -767,6 +837,8 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                         onSelect={() => setSelectedKey(step.clientKey)}
                         onRemove={() => removeStep(step.clientKey)}
                         onCopy={() => copyStep(step.clientKey)}
+                        onInsertBefore={() => insertStep(step.clientKey, "before")}
+                        onInsertAfter={() => insertStep(step.clientKey, "after")}
                         onChange={(patch) =>
                           setSteps((prev) =>
                             prev.map((s) => (s.clientKey === step.clientKey ? { ...s, ...patch } : s))
@@ -795,36 +867,46 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                   </div>
 
                   <div>
-                    <div className="mb-2 flex items-center justify-between">
-                      <div className="text-xs font-medium text-slate-500">系统操作指引</div>
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <div className="text-xs font-medium text-slate-600">系统操作指引</div>
+                        <div className="mt-0.5 text-[11px] text-slate-400">分页适合逐条专注录入，连续模式适合向下批量追加。</div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <div className="flex rounded-lg bg-slate-100 p-0.5 text-xs">
+                          <button type="button" onClick={() => setGuideEditMode("paged")} className={(guideEditMode === "paged" ? "bg-white text-csg-700 shadow-sm" : "text-slate-500") + " rounded-md px-2.5 py-1.5 font-medium transition"}>分页录入</button>
+                          <button type="button" onClick={() => setGuideEditMode("continuous")} className={(guideEditMode === "continuous" ? "bg-white text-csg-700 shadow-sm" : "text-slate-500") + " rounded-md px-2.5 py-1.5 font-medium transition"}>连续追加</button>
+                        </div>
                       <button
                         type="button"
                         className="btn-ghost text-xs"
-                        onClick={() =>
-                          updateSelected({
-                            guide: [...selected.guide, emptyGuide()],
-                          })
-                        }
+                        onClick={() => {
+                          updateSelected({ guide: [...selected.guide, emptyGuide()] });
+                          setGuidePage(selected.guide.length);
+                        }}
                       >
                         + 添指引
                       </button>
+                      </div>
                     </div>
+                    {guideEditMode === "paged" && selected.guide.length > 0 && (
+                      <div className="mb-3 flex items-center justify-between rounded-lg border border-csg-100 bg-csg-50/60 px-3 py-2">
+                        <button type="button" className="text-xs font-medium text-csg-700 disabled:text-slate-300" disabled={safeGuidePage === 0} onClick={() => setGuidePage((page) => Math.max(0, page - 1))}>← 上一条</button>
+                        <div className="flex items-center gap-2"><span className="text-xs font-semibold text-csg-800">第 {safeGuidePage + 1} / {selected.guide.length} 条</span><div className="hidden gap-1 sm:flex">{selected.guide.map((_, index) => <button key={index} type="button" aria-label={`第 ${index + 1} 条指引`} onClick={() => setGuidePage(index)} className={(index === safeGuidePage ? "w-5 bg-csg-600" : "w-2 bg-csg-200 hover:bg-csg-300") + " h-2 rounded-full transition-all"} />)}</div></div>
+                        <button type="button" className="text-xs font-medium text-csg-700 disabled:text-slate-300" disabled={safeGuidePage >= selected.guide.length - 1} onClick={() => setGuidePage((page) => Math.min(selected.guide.length - 1, page + 1))}>下一条 →</button>
+                      </div>
+                    )}
                     <div className="space-y-3">
-                      {selected.guide.map((g, index) => (
-                        <div key={index} className="rounded-md border border-slate-200 p-3">
+                      {visibleGuideEntries.map(({ guide: g, index }) => (
+                        <div key={index} className={(guideEditMode === "paged" ? "border-csg-200 shadow-sm" : "border-slate-200") + " rounded-xl border bg-white p-3"}>
                           <div className="mb-2 flex items-center justify-between">
                             <span className="mono text-xs text-slate-400">#{index + 1}</span>
-                            <button
-                              type="button"
-                              className="text-xs text-slate-400 hover:text-red-600"
-                              onClick={() =>
-                                updateSelected({
-                                  guide: selected.guide.filter((_, i) => i !== index),
-                                })
-                              }
-                            >
-                              删除
-                            </button>
+                            <div className="flex items-center gap-1.5">
+                              <button type="button" className="rounded px-1.5 py-0.5 text-[11px] text-csg-600 hover:bg-csg-50" onClick={() => insertGuide(index, "before")}>＋ 前插</button>
+                              <button type="button" className="rounded px-1.5 py-0.5 text-[11px] text-csg-600 hover:bg-csg-50" onClick={() => insertGuide(index, "after")}>＋ 后插</button>
+                              <span className="h-3 w-px bg-slate-200" />
+                              <button type="button" className="text-xs text-slate-400 hover:text-red-600" onClick={() => { updateSelected({ guide: selected.guide.filter((_, i) => i !== index) }); setGuidePage((page) => Math.max(0, Math.min(page, selected.guide.length - 2))); }}>删除</button>
+                            </div>
                           </div>
                           <div className="grid gap-2 sm:grid-cols-2">
                             <input

@@ -2,8 +2,8 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import delete, func, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.deps import get_current_user, get_db, require_admin
@@ -27,6 +27,7 @@ from app.schemas import (
     FlowDetailOut,
     FlowMutationResult,
     FlowPatchIn,
+    FlowSearchResultOut,
     GuideItemOut,
     PersonBrief,
     PersonOut,
@@ -177,6 +178,51 @@ def _add_flow_log(
     )
     db.add(log)
     return log
+
+
+@router.get("/flows/search", response_model=list[FlowSearchResultOut])
+def search_flows(
+    q: str = Query("", max_length=100),
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """首页全局搜索：覆盖流程、环节及操作指引，只返回可办理的已发布流程。"""
+    keyword = q.strip()
+    if not keyword:
+        return []
+    like = f"%{keyword}%"
+    rows = db.execute(
+        select(Flow, BusinessDomain)
+        .join(BusinessDomain, BusinessDomain.id == Flow.domain_id)
+        .outerjoin(Step, Step.flow_id == Flow.id)
+        .outerjoin(GuideItem, GuideItem.step_id == Step.id)
+        .where(
+            Flow.status == "published",
+            or_(
+                Flow.name.ilike(like),
+                Flow.description.ilike(like),
+                BusinessDomain.name.ilike(like),
+                Step.name.ilike(like),
+                Step.task.ilike(like),
+                GuideItem.system_name.ilike(like),
+                GuideItem.action_text.ilike(like),
+                GuideItem.note.ilike(like),
+            ),
+        )
+        .distinct()
+        .order_by(BusinessDomain.order_index, Flow.order_index, Flow.id)
+        .limit(20)
+    ).all()
+    return [
+        FlowSearchResultOut(
+            id=flow.id,
+            name=flow.name,
+            description=flow.description,
+            domain_id=domain.id,
+            domain_name=domain.name,
+        )
+        for flow, domain in rows
+    ]
 
 
 @router.get("/flows/{flow_id}", response_model=FlowDetailOut)
@@ -380,6 +426,15 @@ def _validate_definition_steps(steps: list[StepDefinitionIn], persons_by_id: dic
                     raise HTTPException(
                         status_code=422,
                         detail=f"责任人「{person.name}」不属于所选责任团队",
+                    )
+            if guide.escalation_person_id is not None:
+                if guide.unit_id is None:
+                    raise HTTPException(status_code=422, detail="请先选择责任团队再选择直接领导")
+                leader = persons_by_id[guide.escalation_person_id]
+                if leader.unit_id != guide.unit_id:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=f"直接领导「{leader.name}」不属于所选责任团队",
                     )
 
 

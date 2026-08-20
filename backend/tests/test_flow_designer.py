@@ -3,6 +3,27 @@ from app.models import StepPerson
 from tests.conftest import bearer
 
 
+def test_home_search_matches_flow_step_and_guide_but_hides_drafts(client, viewer_token, admin_token):
+    viewer = bearer(viewer_token)
+    admin = bearer(admin_token)
+    by_name = client.get("/api/flows/search", params={"q": "物理机"}, headers=viewer)
+    assert by_name.status_code == 200
+    assert any(item["id"] == 1 for item in by_name.json())
+
+    by_action = client.get("/api/flows/search", params={"q": "登录"}, headers=viewer)
+    assert by_action.status_code == 200
+    assert by_action.json()
+
+    draft = client.post(
+        "/api/flows",
+        json={"domain_id": 6, "name": "仅草稿可见关键词", "description": "首页不能搜到"},
+        headers=admin,
+    )
+    assert draft.status_code == 200
+    hidden = client.get("/api/flows/search", params={"q": "仅草稿可见关键词"}, headers=viewer)
+    assert hidden.json() == []
+
+
 def test_viewer_cannot_mutate_flows(client, viewer_token):
     headers = bearer(viewer_token)
     assert client.post(
@@ -257,6 +278,35 @@ def test_definition_rejects_person_outside_unit(client, admin_token, ledger):
     assert "责任团队" in r.json()["detail"]
 
 
+def test_definition_rejects_direct_leader_outside_unit(client, admin_token, ledger):
+    headers = bearer(admin_token)
+    p1, _, p3 = ledger["person_ids"]  # 张三属平台运维组，王五属调度中心
+    r = client.put(
+        "/api/flows/2/definition",
+        json={
+            "steps": [
+                {
+                    "code": "X",
+                    "name": "x",
+                    "guide": [
+                        {
+                            "system_name": "系统",
+                            "action_text": "操作",
+                            "unit_id": ledger["unit_id"],
+                            "person_ids": [p1],
+                            "escalation_person_id": p3,
+                        }
+                    ],
+                }
+            ]
+        },
+        headers=headers,
+    )
+    assert r.status_code == 422
+    assert "直接领导" in r.json()["detail"]
+    assert "不属于所选责任团队" in r.json()["detail"]
+
+
 def test_cannot_publish_empty_flow(client, admin_token):
     headers = bearer(admin_token)
     domains = client.get("/api/domains", headers=headers).json()
@@ -432,7 +482,7 @@ def test_definition_rebuild_remaps_in_progress_archives(client, admin_token, vie
 
 def test_clone_flow_creates_draft_copy(client, admin_token, ledger):
     headers = bearer(admin_token)
-    p1, p2, p3 = ledger["person_ids"]
+    p1, p2, _ = ledger["person_ids"]
     unit_id = ledger["unit_id"]
     domains = client.get("/api/domains", headers=headers).json()
     delivery = next(d for d in domains if d["code"] == "it-resource-delivery")
@@ -457,7 +507,7 @@ def test_clone_flow_creates_draft_copy(client, admin_token, ledger):
                             "url": "http://example.local",
                             "unit_id": unit_id,
                             "person_ids": [p1, p2],
-                            "escalation_person_id": p3,
+                            "escalation_person_id": p2,
                         }
                     ],
                 }
@@ -477,7 +527,7 @@ def test_clone_flow_creates_draft_copy(client, admin_token, ledger):
     assert copy["description"] == "原说明"
     guide = copy["steps"][0]["guide"][0]
     assert {p["name"] for p in guide["persons"]} == {"张三", "李四"}
-    assert guide["escalation"]["name"] == "王五"
+    assert guide["escalation"]["name"] == "李四"
     assert guide["url"] == "http://example.local"
 
     again = client.post(f"/api/flows/{flow_id}/clone", headers=headers).json()["flow"]

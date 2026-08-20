@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../api/client";
 import GuideList from "../components/GuideList";
@@ -57,6 +57,7 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [definitionNotice, setDefinitionNotice] = useState(false);
+  const [finishOpen, setFinishOpen] = useState(false);
   const archiveRef = useRef<GuideArchive | null>(null);
   const stepsRef = useRef<Step[]>([]);
   const latestSave = useRef<{ progress: Progress; status: "in_progress" | "completed" } | null>(null);
@@ -134,11 +135,6 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
   const isLastGuideInStep = safeGuide >= slotsInStep - 1;
   const isLastStep = Boolean(flow && safeStep === steps.length - 1);
   const isLastOverall = isLastStep && isLastGuideInStep;
-
-  const guideSystems = useMemo(
-    () => [...new Set((step?.guide ?? []).map((item) => item.system_name))],
-    [step]
-  );
 
   async function persist(next: Progress, status: "in_progress" | "completed") {
     const current = archiveRef.current;
@@ -260,25 +256,6 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
 
   async function goNext() {
     if (!flow) return;
-    if (completed) {
-      if (!event || !flow) return;
-      setSaving(true);
-      try {
-        const fresh = await api<GuideArchive>(`/guide-events/${event.id}/flows`, {
-          method: "POST",
-          body: { flow_id: flow.id },
-        });
-        setArchive(fresh);
-        setCompleted(false);
-        setProgress({ step: 0, guide: 0 });
-        navigate(`/flows/${id}/guide?archive=${fresh.id}`, { replace: true });
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "重新开始失败");
-      } finally {
-        setSaving(false);
-      }
-      return;
-    }
     if (!isLastGuideInStep) {
       go({ step: safeStep, guide: safeGuide + 1 });
       return;
@@ -287,10 +264,16 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
       go({ step: safeStep + 1, guide: 0 });
       return;
     }
-    setCompleted(true);
+    setFinishOpen(true);
+  }
+
+  async function confirmFinish() {
+    setFinishOpen(false);
     setSaving(true);
     try {
       await enqueueSave({ step: safeStep, guide: safeGuide }, "completed");
+      setCompleted(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
       setSaving(false);
     }
@@ -302,9 +285,7 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
     go({ step: stepIndex, guide: 0 });
   }
 
-  const nextLabel = completed
-    ? "重新开始本流程 →"
-    : isLastOverall
+  const nextLabel = isLastOverall
     ? "确认完成本轮办理"
     : isLastGuideInStep
       ? "完成本环节，进入下一环节 →"
@@ -332,7 +313,7 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
         </div>
       )}
 
-      {flow && step && archive && (
+      {flow && step && archive && !completed && (
         <div className="mx-auto max-w-4xl">
           <section className="panel overflow-hidden p-3 sm:p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -422,40 +403,14 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
               </div>
             </div>
 
-            <div className="px-4 py-3 sm:px-5">
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)]">
-                <div>
-              <div className="rounded-lg border border-csg-100 bg-csg-50/60 p-3">
-                <div className="text-xs font-semibold text-csg-700">本环节要做什么</div>
-                <p className="mt-1 text-sm leading-5 text-slate-700">
-                  {step.task || "请按照下方操作指引完成本环节。"}
-                </p>
-              </div>
-
-              {guideSystems.length > 0 && (
-                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-xs text-slate-500">
-                  <span>本环节涉及系统</span>
-                  {guideSystems.map((system) => (
-                    <span
-                      key={system}
-                      className="rounded-full bg-white px-2.5 py-1 font-medium text-csg-700 ring-1 ring-csg-200"
-                    >
-                      {system}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <div className="mt-2.5 flex gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-4 text-amber-900">
-                <span className="shrink-0 font-bold">提示</span>
-                <span>本系统仅提供操作指导，不记录或认定其他业务系统中的实际办理结果。</span>
-              </div>
-                </div>
-
+            <div className="px-4 py-4 sm:px-5">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-baseline justify-between gap-2">
-                  <div className="text-sm font-semibold text-slate-800">
-                    {hasRealGuides ? "请完成本条操作指引" : "操作指引"}
+                  <div>
+                    <div className="text-xs font-semibold tracking-wider text-csg-600">本环节操作</div>
+                    <div className="mt-1 text-base font-semibold text-slate-900">
+                      {step.task || (hasRealGuides ? "请按下方内容完成本条操作" : "请确认本环节说明")}
+                    </div>
                   </div>
                   {hasRealGuides && (
                     <div className="text-xs text-slate-400">
@@ -470,7 +425,6 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
                   compact
                 />
               </div>
-              </div>
             </div>
           </section>
 
@@ -482,6 +436,30 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
             <button type="button" className="btn-primary" disabled={saving} onClick={goNext}>
               {saving ? "正在保存…" : nextLabel}
             </button>
+          </div>
+        </div>
+      )}
+      {flow && archive && completed && (
+        <section className="mx-auto max-w-2xl overflow-hidden rounded-2xl border border-emerald-100 bg-white text-center shadow-[0_20px_55px_rgba(5,150,105,0.12)]">
+          <div className="bg-gradient-to-br from-emerald-50 via-white to-cyan-50 px-6 py-10">
+            <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-emerald-500 text-3xl text-white shadow-[0_10px_25px_rgba(16,185,129,0.25)]">✓</div>
+            <div className="mt-5 text-xs font-semibold tracking-[0.18em] text-emerald-700">FLOW COMPLETED</div>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-900">本次办理已结束</h2>
+            <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-500">“{flow.name}”的全部操作指引已经确认完成，进度已归档。无需重新浏览流程。</p>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-3 border-t border-slate-100 px-6 py-5">
+            <Link to="/my-guides" className="btn-primary">返回我的办理</Link>
+            <Link to={`/flows/${flow.id}`} className="btn-ghost">查看流程地图</Link>
+          </div>
+        </section>
+      )}
+      {finishOpen && flow && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-slate-900/40 p-4 backdrop-blur-[2px]" onClick={() => setFinishOpen(false)}>
+          <div className="w-full max-w-md rounded-2xl border border-csg-100 bg-white p-6 shadow-[0_24px_70px_rgba(15,23,42,0.22)]" onClick={(event) => event.stopPropagation()}>
+            <div className="mx-auto grid h-12 w-12 place-items-center rounded-full bg-csg-50 text-xl text-csg-700 ring-1 ring-csg-100">✓</div>
+            <h3 className="mt-4 text-center text-lg font-semibold text-slate-900">确认结束本次办理？</h3>
+            <p className="mt-2 text-center text-sm leading-6 text-slate-500">确认后将把“{flow.name}”标记为已完成并归档，不会让您重新浏览流程。</p>
+            <div className="mt-5 flex justify-center gap-2"><button type="button" className="btn-ghost" onClick={() => setFinishOpen(false)}>再检查一下</button><button type="button" className="btn-primary" onClick={() => void confirmFinish()}>确认结束</button></div>
           </div>
         </div>
       )}

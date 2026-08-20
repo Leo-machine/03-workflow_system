@@ -15,7 +15,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base
@@ -207,9 +207,13 @@ class GuideEvent(Base):
     """一次事项/工单对应的办理事件，可包含多个流程实例。"""
 
     __tablename__ = "guide_events"
+    __table_args__ = (
+        UniqueConstraint("event_key", name="guide_events_event_key_key"),
+        Index("ix_guide_events_event_key", "event_key", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    event_key: Mapped[str] = mapped_column(String(40), unique=True, index=True)
+    event_key: Mapped[str] = mapped_column(String(40))
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
     title: Mapped[str] = mapped_column(String(120))
     external_ref: Mapped[str | None] = mapped_column(String(100))
@@ -222,6 +226,9 @@ class GuideArchive(Base):
     """用户的“带我办理”阅读存档；不记录外部系统的实际办理结果。"""
 
     __tablename__ = "guide_archives"
+    __table_args__ = (
+        Index("ix_guide_archives_user_flow_updated", "user_id", "flow_id", "updated_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     event_id: Mapped[int | None] = mapped_column(ForeignKey("guide_events.id", ondelete="CASCADE"), index=True)

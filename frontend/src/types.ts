@@ -67,6 +67,14 @@ export interface DomainFlow {
   status: string;
 }
 
+export interface FlowSearchResult {
+  id: number;
+  name: string;
+  description: string;
+  domain_id: number;
+  domain_name: string;
+}
+
 export interface BusinessDomainDetail extends BusinessDomain {
   flows: DomainFlow[];
 }

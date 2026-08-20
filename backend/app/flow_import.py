@@ -277,7 +277,7 @@ def _resolve_person(
             issues.append(FlowImportIssue(row=row, message=f"{label}「{name}」在该团队内不唯一"))
             return None
         if matches:
-            issues.append(FlowImportIssue(row=row, message=f"{label}「{name}」不属于团队「{unit.name}」"))
+            issues.append(FlowImportIssue(row=row, message=f"{label}「{name}」不属于责任团队「{unit.name}」"))
             return None
         issues.append(FlowImportIssue(row=row, message=f"{label}「{name}」不在人员台账中"))
         return None
@@ -343,16 +343,19 @@ def build_definitions(
                         person_ids.append(person.id)
                 escalation_id = None
                 if guide.escalation_name:
-                    esc = _resolve_person(
-                        guide.escalation_name,
-                        unit=None,
-                        persons=persons,
-                        row=guide.row,
-                        issues=issues,
-                        label="直接领导",
-                    )
-                    if esc is not None:
-                        escalation_id = esc.id
+                    if unit is None:
+                        issues.append(FlowImportIssue(row=guide.row, message="请先填写责任团队再填写直接领导"))
+                    else:
+                        esc = _resolve_person(
+                            guide.escalation_name,
+                            unit=unit,
+                            persons=persons,
+                            row=guide.row,
+                            issues=issues,
+                            label="直接领导",
+                        )
+                        if esc is not None:
+                            escalation_id = esc.id
                 guides_in.append(
                     GuideItemIn(
                         system_name=guide.system_name,

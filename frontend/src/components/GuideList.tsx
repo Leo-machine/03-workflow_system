@@ -89,9 +89,8 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = 
             </div>
             <div className={"flex-1 " + (compact ? "pb-2" : "pb-5")}>
               <div className="flex flex-wrap items-center gap-2">
-                <span className="inline-block rounded-md bg-csg-50 px-2 py-0.5 text-xs font-semibold text-csg-800 ring-1 ring-csg-200">
-                  {item.system_name}
-                </span>
+                <span className="text-[11px] font-medium text-slate-400">操作平台</span>
+                <span className="inline-block rounded-md bg-csg-50 px-2 py-0.5 text-xs font-semibold text-csg-800 ring-1 ring-csg-200">{item.system_name}</span>
                 {href && (
                   <a
                     href={href}
@@ -102,6 +101,11 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = 
                     打开系统 ↗
                   </a>
                 )}
+              </div>
+
+              <div className={(compact ? "mt-2.5 p-3" : "mt-3 p-4") + " rounded-xl border border-csg-200 bg-gradient-to-r from-csg-50 to-white shadow-sm"}>
+                <div className="text-[11px] font-semibold tracking-wider text-csg-600">具体操作</div>
+                <p className={(compact ? "mt-1 text-base leading-7" : "mt-1.5 text-base leading-7") + " font-semibold text-slate-900"}>{item.action_text}</p>
               </div>
 
               {showRoles && (
@@ -116,7 +120,10 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = 
                     ) : (
                       <div className={(compact ? "mt-0.5" : "mt-1") + " flex flex-wrap gap-3"}>
                         {item.persons.map((person) => (
-                          <PersonLine key={person.id} person={person} />
+                          <div key={person.id} className="flex items-center gap-2">
+                            <PersonLine person={person} />
+                            <CopyContact person={person} />
+                          </div>
                         ))}
                       </div>
                     )}
@@ -140,7 +147,6 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = 
                 </div>
               )}
 
-              <p className={(compact ? "mt-1 leading-5" : "mt-1.5 leading-relaxed") + " text-sm text-slate-700"}>{item.action_text}</p>
               {imageHref && (
                 <AuthenticatedImage
                   path={imageHref}

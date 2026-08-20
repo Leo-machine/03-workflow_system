@@ -190,6 +190,14 @@ class FlowDetailOut(BaseModel):
     domain_id: int | None = None
 
 
+class FlowSearchResultOut(BaseModel):
+    id: int
+    name: str
+    description: str
+    domain_id: int
+    domain_name: str
+
+
 class FlowCreateIn(BaseModel):
     domain_id: int
     name: str

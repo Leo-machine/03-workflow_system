@@ -5,7 +5,7 @@ import PageShell from "../components/PageShell";
 import Toast from "../components/Toast";
 import { useDialog } from "../components/DialogProvider";
 import { useRefetchOnFocus } from "../hooks/useRefetchOnFocus";
-import type { BusinessDomain, User } from "../types";
+import type { BusinessDomain, FlowSearchResult, User } from "../types";
 
 const ICONS: Record<string, string> = {
   server: "▣",
@@ -42,6 +42,9 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
   const [form, setForm] = useState<DomainForm>(EMPTY_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [flowQuery, setFlowQuery] = useState("");
+  const [flowResults, setFlowResults] = useState<FlowSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
   const publishedFlowCount = domains.reduce((sum, domain) => sum + domain.published_flow_count, 0);
 
   const load = useCallback(async () => {
@@ -56,6 +59,26 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
     void load();
   }, [load]);
   useRefetchOnFocus(load);
+
+  useEffect(() => {
+    const keyword = flowQuery.trim();
+    if (!keyword) {
+      setFlowResults([]);
+      setSearching(false);
+      return;
+    }
+    setSearching(true);
+    const timer = window.setTimeout(() => {
+      api<FlowSearchResult[]>(`/flows/search?q=${encodeURIComponent(keyword)}`)
+        .then((results) => {
+          setFlowResults(results);
+          setError(null);
+        })
+        .catch((err) => setError(err instanceof Error ? err.message : "搜索流程失败"))
+        .finally(() => setSearching(false));
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [flowQuery]);
 
   useEffect(() => {
     if (!toast) return;
@@ -131,6 +154,35 @@ export default function DomainNavPage({ user, onLogout }: { user: User; onLogout
       {error && (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700">{error}</div>
       )}
+
+      <section className="relative z-20 mb-5 rounded-2xl border border-csg-100 bg-white p-4 shadow-[0_14px_38px_rgba(0,71,133,0.10)] sm:p-5" aria-label="流程搜索">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-csg-600 text-xl text-white shadow-sm">⌕</div>
+          <div className="min-w-0 sm:w-56"><h2 className="text-sm font-semibold text-slate-900">查找业务流程</h2><p className="mt-0.5 text-xs text-slate-500">记得关键词，就能找到办理入口</p></div>
+          <div className="relative min-w-0 flex-1">
+            <input value={flowQuery} onChange={(event) => setFlowQuery(event.target.value)} placeholder="搜索流程、环节、系统或操作内容，如：服务器、借出、云盾" className="focus-csg w-full rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3 pr-10 text-sm" />
+            {flowQuery && <button type="button" aria-label="清空搜索" onClick={() => setFlowQuery("")} className="absolute inset-y-0 right-2 px-2 text-slate-400 hover:text-slate-700">×</button>}
+          </div>
+        </div>
+        {flowQuery.trim() && (
+          <div className="mt-4 overflow-hidden rounded-xl border border-slate-100 bg-slate-50/50">
+            <div className="flex items-center justify-between border-b border-slate-100 px-4 py-2 text-xs"><span className="font-medium text-slate-500">{searching ? "正在查找…" : `找到 ${flowResults.length} 条可办理流程`}</span><span className="text-slate-400">最多显示 20 条</span></div>
+            {!searching && flowResults.length === 0 ? (
+              <div className="px-4 py-6 text-center text-sm text-slate-500">没有找到匹配流程，试试更短或更具体的关键词。</div>
+            ) : (
+              <div className="divide-y divide-slate-100">
+                {flowResults.map((flow) => (
+                  <div key={flow.id} className="flex flex-wrap items-center gap-3 bg-white px-4 py-3 transition hover:bg-csg-50/50">
+                    <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-csg-50 text-sm text-csg-700 ring-1 ring-csg-100">↗</div>
+                    <Link to={`/flows/${flow.id}`} className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-2"><h3 className="text-sm font-semibold text-slate-900 hover:text-csg-700">{flow.name}</h3><span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500">{flow.domain_name}</span></div><p className="mt-1 line-clamp-1 text-xs text-slate-500">{flow.description || "进入查看完整流程地图和操作指引"}</p></Link>
+                    <div className="ml-auto flex gap-2"><Link to={`/flows/${flow.id}`} className="btn-ghost text-xs">查看流程</Link><Link to={`/flows/${flow.id}/guide`} className="btn-primary px-3 py-1.5 text-xs">带我办理</Link></div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       <section className="mb-8 grid gap-4 lg:grid-cols-[1.45fr_1fr]" aria-label="业务工作台">
         <Link
