@@ -405,10 +405,10 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
 
             <div className="px-4 py-4 sm:px-5">
               <div className="min-w-0">
-                <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-100 bg-slate-50/80 px-3.5 py-2.5">
                   <div>
-                    <div className="text-xs font-semibold tracking-wider text-csg-600">本环节操作</div>
-                    <div className="mt-1 text-base font-semibold text-slate-900">
+                    <div className="text-[11px] font-semibold tracking-wider text-csg-600">本环节办理目标</div>
+                    <div className="mt-0.5 text-sm font-medium text-slate-800">
                       {step.task || (hasRealGuides ? "请按下方内容完成本条操作" : "请确认本环节说明")}
                     </div>
                   </div>
@@ -423,6 +423,7 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
                   numberFrom={hasRealGuides ? safeGuide + 1 : undefined}
                   emptyHint="本环节暂无系统操作指引。确认环节说明后，可进入下一环节。"
                   compact
+                  focusMode
                 />
               </div>
             </div>
