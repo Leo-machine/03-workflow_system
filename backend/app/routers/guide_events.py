@@ -29,6 +29,7 @@ def _owned_event(db: Session, event_id: int, user: User) -> GuideEvent:
 
 
 def _event_out(db: Session, event: GuideEvent) -> GuideEventOut:
+    initiator = db.get(User, event.user_id)
     rows = db.execute(
         select(GuideArchive, Flow)
         .join(Flow, Flow.id == GuideArchive.flow_id)
@@ -44,7 +45,10 @@ def _event_out(db: Session, event: GuideEvent) -> GuideEventOut:
     ]
     status = "completed" if flows and all(item.status == "completed" for item in flows) else "in_progress"
     return GuideEventOut(
-        id=event.id, event_key=event.event_key, title=event.title,
+        id=event.id, event_key=event.event_key,
+        initiator_user_id=event.user_id,
+        initiator_name=(initiator.display_name.strip() or initiator.username) if initiator else "未知用户",
+        title=event.title,
         external_ref=event.external_ref, status=status,
         created_at=event.created_at, updated_at=event.updated_at, flows=flows,
     )

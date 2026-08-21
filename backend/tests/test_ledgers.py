@@ -32,7 +32,7 @@ def test_unit_crud_and_logs(client, admin_token):
 def test_unit_leader_and_person_delete_clears_contacts(client, admin_token, ledger):
     headers = bearer(admin_token)
     unit_id = ledger["unit_id"]
-    p1, p2, p3 = ledger["person_ids"]
+    p1, p2, _ = ledger["person_ids"]
     r = client.put(
         f"/api/units/{unit_id}",
         json={"name": "平台运维组", "order_index": 0, "leader_person_id": p2},
@@ -62,8 +62,8 @@ def test_unit_leader_and_person_delete_clears_contacts(client, admin_token, ledg
                             "system_name": "云盾",
                             "action_text": "填单",
                             "unit_id": unit_id,
-                            "person_ids": [p1],
-                            "escalation_person_id": p3,
+                            "person_ids": [p2],
+                            "escalation_person_id": p1,
                         }
                     ],
                 }
@@ -73,8 +73,8 @@ def test_unit_leader_and_person_delete_clears_contacts(client, admin_token, ledg
     )
     assert saved.status_code == 200, saved.text
     guide = saved.json()["flow"]["steps"][0]["guide"][0]
-    assert guide["escalation"]["name"] == "王五"
-    assert guide["direct_leader"]["name"] == "王五"
+    assert guide["escalation"]["name"] == "张三"
+    assert guide["direct_leader"]["name"] == "张三"
     assert guide["unit"]["leader"]["name"] == "李四"
 
     renamed = client.put(

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { GuideItem, PersonBrief } from "../types";
+import { resolvedOperatorLabel } from "../lib/operatorRoles";
 import AuthenticatedImage from "./AuthenticatedImage";
 
 interface Props {
@@ -10,6 +11,8 @@ interface Props {
   compact?: boolean;
   /** “带我办理”聚焦模式：把操作内容置于最强视觉层级 */
   focusMode?: boolean;
+  /** 办理事项创建人的稳定姓名，仅用于动态解析“流程发起人” */
+  initiatorName?: string;
 }
 
 function safeHref(url: string | null): string | null {
@@ -64,12 +67,12 @@ function CopyContact({ person }: { person: PersonBrief }) {
   );
 }
 
-/** 系统操作指引：责任人 / 直接领导 + 系统链接 + 图示 + 动作 */
-export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = false, focusMode = false }: Props) {
+/** 系统操作指引：操作主体 + 支撑/升级联系人 + 系统链接 + 图示 + 动作 */
+export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = false, focusMode = false, initiatorName }: Props) {
   if (guide.length === 0) {
     return (
       <p className="mt-3 text-sm text-slate-500">
-        {emptyHint ?? "本环节暂无系统操作指引（可在流程设计器中补充责任人、直接领导、图文与链接）。"}
+        {emptyHint ?? "本环节暂无系统操作指引（可在流程设计器中补充操作主体、支撑联系人、图文与链接）。"}
       </p>
     );
   }
@@ -80,6 +83,7 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = 
         const imageHref = safeHref(item.image_path);
         const number = numberFrom + i;
         const leader = directLeaderOf(item);
+        const operator = resolvedOperatorLabel(item, initiatorName);
         const showRoles = Boolean(item.unit || item.persons.length > 0 || leader);
         return (
           <li key={item.id} className={focusMode ? "flex gap-3 sm:gap-4" : "flex gap-3"}>
@@ -94,7 +98,10 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = 
                 <div className="relative overflow-hidden rounded-2xl border border-csg-200 bg-gradient-to-br from-csg-50 via-white to-cyan-50 p-4 shadow-[0_10px_28px_rgba(0,105,180,0.09)] sm:p-5">
                   <span className="absolute inset-y-0 left-0 w-1.5 bg-gradient-to-b from-csg-700 to-cyan-400" />
                   <div className="flex flex-wrap items-center justify-between gap-2 pl-1">
-                    <span className="text-xs font-semibold tracking-[0.12em] text-csg-700">请执行以下操作</span>
+                    <div>
+                      <div className="text-[10px] font-semibold tracking-[0.12em] text-slate-400">本步操作主体</div>
+                      <div className="mt-0.5 text-sm font-bold text-csg-800">{operator}</div>
+                    </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="text-[11px] text-slate-400">操作平台</span>
                       <span className="rounded-lg bg-white px-2.5 py-1 text-xs font-semibold text-csg-800 ring-1 ring-csg-200">{item.system_name}</span>
@@ -105,10 +112,15 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = 
                       )}
                     </div>
                   </div>
-                  <p className="mt-3 pl-1 text-lg font-semibold leading-8 text-slate-950 sm:text-xl">{item.action_text}</p>
+                  <div className="mt-3 pl-1 text-[10px] font-semibold tracking-[0.12em] text-csg-600">请执行以下操作</div>
+                  <p className="mt-1 pl-1 text-lg font-semibold leading-8 text-slate-950 sm:text-xl">{item.action_text}</p>
                 </div>
               ) : (
                 <>
+                  <div className="mb-2 inline-flex items-center gap-2 rounded-md bg-csg-50 px-2.5 py-1 text-xs text-csg-800 ring-1 ring-csg-100">
+                    <span className="text-slate-500">本步操作主体</span>
+                    <strong>{operator}</strong>
+                  </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="text-[11px] font-medium text-slate-400">操作平台</span>
                     <span className="inline-block rounded-md bg-csg-50 px-2 py-0.5 text-xs font-semibold text-csg-800 ring-1 ring-csg-200">{item.system_name}</span>
@@ -128,10 +140,10 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = 
               {showRoles && (
                 <div className={(focusMode ? "grid gap-3 rounded-xl border border-slate-100 bg-slate-50/80 p-3 sm:grid-cols-2 lg:grid-cols-1" : (compact ? "mt-1.5 px-2.5 py-1.5" : "mt-2 px-3 py-2") + " space-y-2 rounded-lg bg-slate-50 ring-1 ring-slate-100")}>
                   <div className={(focusMode ? "sm:col-span-2 lg:col-span-1" : "") + " text-[11px] font-medium text-slate-400"}>
-                    {item.unit?.name ?? "未设责任团队"}
+                    {item.unit?.name ?? "未设支撑团队"}
                   </div>
                   <div>
-                    <div className="text-[11px] font-medium text-slate-500">责任人</div>
+                    <div className="text-[11px] font-medium text-slate-500">业务/技术支撑联系人</div>
                     {item.persons.length === 0 ? (
                       <p className="mt-1 text-xs text-slate-400">未指定</p>
                     ) : (
@@ -147,7 +159,7 @@ export default function GuideList({ guide, numberFrom = 1, emptyHint, compact = 
                   </div>
                   <div className={(focusMode ? "border-l-0 sm:border-l sm:border-t-0 sm:pl-3 lg:border-l-0 lg:border-t lg:pl-0 lg:pt-2" : "") + " flex items-start justify-between gap-2 border-t border-slate-100 pt-2"}>
                     <div className="min-w-0">
-                      <div className="text-[11px] font-medium text-slate-500">直接领导</div>
+                      <div className="text-[11px] font-medium text-slate-500">协调升级联系人</div>
                       {leader ? (
                         <div className="mt-1">
                           <PersonLine person={leader} />

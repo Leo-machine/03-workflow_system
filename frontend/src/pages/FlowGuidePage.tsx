@@ -424,6 +424,7 @@ export default function FlowGuidePage({ user, onLogout }: { user: User; onLogout
                   emptyHint="本环节暂无系统操作指引。确认环节说明后，可进入下一环节。"
                   compact
                   focusMode
+                  initiatorName={event?.initiator_name}
                 />
               </div>
             </div>

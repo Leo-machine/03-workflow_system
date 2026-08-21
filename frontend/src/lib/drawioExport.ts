@@ -1,4 +1,5 @@
 import type { FlowDetail } from "../types";
+import { resolvedOperatorLabel } from "./operatorRoles";
 
 function esc(value: string): string {
   return value
@@ -53,7 +54,7 @@ export function flowToDrawioXml(flow: FlowDetail): string {
       const gy = y + height + 58 + gi * 90;
       const assignees = guide.persons.map((p) => p.name).join("、");
       const leader = guide.direct_leader ?? guide.escalation ?? guide.unit?.leader;
-      const gLabel = `${String(gi + 1).padStart(2, "0")}  ${guide.system_name}${assignees ? `\n责任人：${assignees}` : ""}${leader ? ` · 直接领导：${leader.name}` : ""}\n${guide.action_text}`;
+      const gLabel = `${String(gi + 1).padStart(2, "0")}  ${guide.system_name}\n操作主体：${resolvedOperatorLabel(guide)}${assignees ? `\n支撑联系人：${assignees}` : ""}${leader ? ` · 升级联系人：${leader.name}` : ""}\n${guide.action_text}`;
       cells.push(
         `<mxCell id="${gid}" value="${esc(gLabel)}" style="rounded=1;arcSize=10;whiteSpace=wrap;html=1;fillColor=#ffffff;strokeColor=#86BCE5;fontColor=#334155;align=left;verticalAlign=middle;spacing=9;fontSize=11;shadow=1;" vertex="1" parent="1"><mxGeometry x="${gx}" y="${gy}" width="${width}" height="70" as="geometry"/></mxCell>`
       );

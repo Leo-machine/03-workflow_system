@@ -70,7 +70,7 @@ export default function FlowMapPage({ user, onLogout }: { user: User; onLogout: 
       user={user}
       onLogout={onLogout}
       title={flow ? `${flow.name} · 办事地图` : "流程办事地图"}
-      subtitle={flow?.description ?? "归谁办 · 直接领导是谁 · 做什么、交什么 · 在哪些系统怎么操作。"}
+      subtitle={flow?.description ?? "谁来操作 · 遇到问题找谁 · 如何协调升级 · 在哪些系统怎么操作。"}
       backTo={flow?.domain_id ? `/domains/${flow.domain_id}` : "/"}
       backLabel={flow?.domain_id ? "返回业务域" : "平台组业务导航"}
       actions={
@@ -130,7 +130,7 @@ export default function FlowMapPage({ user, onLogout }: { user: User; onLogout: 
             <span className="flex items-center gap-1.5">
               <span className="inline-block h-3 w-3 rounded-full bg-amber-500" /> 并行多责任人
             </span>
-            <span>责任人与直接领导均来自流程定义；直接领导未指定时默认取团队负责人</span>
+            <span>操作主体来自流程定义；支撑与升级联系人来自人员台账，升级联系人留空时默认取团队负责人</span>
           </div>
         </>
       )}
@@ -182,7 +182,7 @@ function DrawioExportModal({ flow, onClose }: { flow: FlowDetail; onClose: () =>
             </div>
             <ul className="mt-4 space-y-2 text-xs leading-5 text-slate-500">
               <li className="flex gap-2"><span className="text-emerald-500">✓</span> 横向主流程，操作指引按环节向下展开</li>
-              <li className="flex gap-2"><span className="text-emerald-500">✓</span> 包含责任人、直接领导及系统操作说明</li>
+              <li className="flex gap-2"><span className="text-emerald-500">✓</span> 包含操作主体、支撑联系人、升级联系人及系统操作说明</li>
               <li className="flex gap-2"><span className="text-emerald-500">✓</span> 文件可编辑，不会修改系统中的流程</li>
             </ul>
           </div>

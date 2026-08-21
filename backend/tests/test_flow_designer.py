@@ -76,6 +76,7 @@ def test_create_publish_definition_and_delete_draft(client, admin_token, ledger)
                             "action_text": "登录并填单",
                             "url": "http://example.local",
                             "note": "注意工单号",
+                            "operator_role": "process_initiator",
                             "unit_id": unit_id,
                             "person_ids": [p1],
                         }
@@ -105,6 +106,7 @@ def test_create_publish_definition_and_delete_draft(client, admin_token, ledger)
     assert detail["steps"][0]["guide"][0]["persons"][0]["name"] == "张三"
     assert detail["steps"][0]["guide"][0]["unit"]["id"] == unit_id
     assert detail["steps"][0]["guide"][0]["system_name"] == "云盾"
+    assert detail["steps"][0]["guide"][0]["operator_role"] == "process_initiator"
     assert len(detail["steps"][1]["persons"]) == 2  # 聚合到环节供流程条
 
     # publish
@@ -251,6 +253,25 @@ def test_definition_rejects_unknown_person(client, admin_token, ledger):
     assert r.status_code == 422
 
 
+def test_definition_rejects_unknown_operator_role(client, admin_token):
+    r = client.put(
+        "/api/flows/2/definition",
+        json={
+            "steps": [{
+                "code": "X",
+                "name": "x",
+                "guide": [{
+                    "system_name": "系统",
+                    "action_text": "操作",
+                    "operator_role": "unknown_role",
+                }],
+            }]
+        },
+        headers=bearer(admin_token),
+    )
+    assert r.status_code == 422
+
+
 def test_definition_rejects_person_outside_unit(client, admin_token, ledger):
     headers = bearer(admin_token)
     p3 = ledger["person_ids"][2]  # 王五属于调度中心
@@ -275,7 +296,7 @@ def test_definition_rejects_person_outside_unit(client, admin_token, ledger):
         headers=headers,
     )
     assert r.status_code == 422
-    assert "责任团队" in r.json()["detail"]
+    assert "支撑团队" in r.json()["detail"]
 
 
 def test_definition_rejects_direct_leader_outside_unit(client, admin_token, ledger):
@@ -303,8 +324,8 @@ def test_definition_rejects_direct_leader_outside_unit(client, admin_token, ledg
         headers=headers,
     )
     assert r.status_code == 422
-    assert "直接领导" in r.json()["detail"]
-    assert "不属于所选责任团队" in r.json()["detail"]
+    assert "协调升级联系人" in r.json()["detail"]
+    assert "不属于所选支撑团队" in r.json()["detail"]
 
 
 def test_cannot_publish_empty_flow(client, admin_token):

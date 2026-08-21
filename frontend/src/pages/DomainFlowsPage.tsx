@@ -335,7 +335,7 @@ function FlowImportModal({
             <div className="rounded-xl border border-csg-100 bg-csg-50/70 p-4">
               <div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-xl bg-white text-xl text-csg-700 shadow-sm">⇩</span><div><h4 className="text-sm font-semibold text-slate-800">样例模板</h4><p className="mt-0.5 text-[11px] text-slate-500">内含算力卡全生命周期 5 个环节</p></div></div>
               <button type="button" className="btn-ghost mt-4 w-full text-xs" onClick={() => void downloadFile("/flow-imports/template.csv", "流程导入模板-含样例.csv")}>下载 CSV 样例模板</button>
-              <p className="mt-3 text-[11px] leading-5 text-slate-500">请将样例中的业务域、责任团队、责任人和直接领导替换为系统内已有台账名称。</p>
+              <p className="mt-3 text-[11px] leading-5 text-slate-500">请填写操作主体，并将样例中的业务域、支撑团队、支撑联系人和协调升级联系人替换为系统内已有台账名称。</p>
             </div>
 
             <label className={(file ? "border-csg-400 bg-csg-50/50" : "border-slate-200 bg-slate-50/70 hover:border-csg-300 hover:bg-csg-50/40") + " relative flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed p-5 text-center transition"}>

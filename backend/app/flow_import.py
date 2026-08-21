@@ -24,9 +24,10 @@ HEADERS = [
     "动作说明",
     "系统链接",
     "依据注意",
-    "责任团队",
-    "责任人",
-    "直接领导",
+    "操作主体",
+    "支撑团队",
+    "支撑联系人",
+    "协调升级联系人",
 ]
 
 MAX_ROWS = 2000
@@ -41,6 +42,7 @@ class ParsedGuide:
     action_text: str
     url: str | None
     note: str | None
+    operator_role: str
     unit_name: str
     person_names: list[str]
     escalation_name: str
@@ -68,14 +70,14 @@ def template_csv() -> bytes:
     writer = csv.writer(buf)
     writer.writerow(HEADERS)
     writer.writerow([
-        "#填写说明：以下为算力卡生命周期样例，请将业务域、责任团队、责任人与直接领导替换为系统台账中的实际名称；可删除本说明行",
+        "#填写说明：操作主体可填流程发起人、业务经办人、业务负责人、业务经理、系统运维人员或指定人员；请将团队与人员替换为实际台账名称；可删除本说明行",
     ])
     sample = [
-        ["配件管理", "算力卡全生命周期溯源（导入示例）", "算力卡从到货入库到归还入库的全过程操作指引", "S01", "到货入库", "核对到货资料并建立配件资产档案", "配件管理系统", "按到货单录入固定资产编号、序列号、供应商、合同、单价、产权单位和维保到期日", "https://example.internal/accessories/inbound", "核对实物铭牌与到货单信息一致", "", "", ""],
-        ["配件管理", "算力卡全生命周期溯源（导入示例）", "", "S02", "装机", "将库存算力卡安装到目标服务器", "配件管理系统", "选择目标服务器并建立配件与服务器安装关系，将状态由在库变更为在用", "https://example.internal/accessories/install", "装机前确认服务器处于可操作状态", "", "", ""],
-        ["配件管理", "算力卡全生命周期溯源（导入示例）", "", "S03", "拆下", "服务器下线检修后拆除算力卡", "配件管理系统", "确认服务器已切换为未投运，解除安装关系并将算力卡状态变更为在库", "https://example.internal/accessories/remove", "禁止在服务器运行状态下直接拆除", "", "", ""],
-        ["配件管理", "算力卡全生命周期溯源（导入示例）", "", "S04", "借出", "审批通过后向兄弟单位调出", "配件管理系统", "创建借出单，登记借用单位、经办人、预计归还时间和关联工单", "https://example.internal/accessories/lend", "审批通过后方可出库", "", "", ""],
-        ["配件管理", "算力卡全生命周期溯源（导入示例）", "", "S05", "归还", "验收归还配件并完成入库", "配件管理系统", "核对序列号和配件状态，关闭借出记录并重新入库", "https://example.internal/accessories/return", "如有损坏需同步登记异常", "", "", ""],
+        ["配件管理", "算力卡全生命周期溯源（导入示例）", "算力卡从到货入库到归还入库的全过程操作指引", "S01", "到货入库", "核对到货资料并建立配件资产档案", "配件管理系统", "按到货单录入固定资产编号、序列号、供应商、合同、单价、产权单位和维保到期日", "https://example.internal/accessories/inbound", "核对实物铭牌与到货单信息一致", "流程发起人", "", "", ""],
+        ["配件管理", "算力卡全生命周期溯源（导入示例）", "", "S02", "装机", "将库存算力卡安装到目标服务器", "配件管理系统", "选择目标服务器并建立配件与服务器安装关系，将状态由在库变更为在用", "https://example.internal/accessories/install", "装机前确认服务器处于可操作状态", "系统运维人员", "", "", ""],
+        ["配件管理", "算力卡全生命周期溯源（导入示例）", "", "S03", "拆下", "服务器下线检修后拆除算力卡", "配件管理系统", "确认服务器已切换为未投运，解除安装关系并将算力卡状态变更为在库", "https://example.internal/accessories/remove", "禁止在服务器运行状态下直接拆除", "系统运维人员", "", "", ""],
+        ["配件管理", "算力卡全生命周期溯源（导入示例）", "", "S04", "借出", "审批通过后向兄弟单位调出", "配件管理系统", "创建借出单，登记借用单位、经办人、预计归还时间和关联工单", "https://example.internal/accessories/lend", "审批通过后方可出库", "业务负责人", "", "", ""],
+        ["配件管理", "算力卡全生命周期溯源（导入示例）", "", "S05", "归还", "验收归还配件并完成入库", "配件管理系统", "核对序列号和配件状态，关闭借出记录并重新入库", "https://example.internal/accessories/return", "如有损坏需同步登记异常", "业务经办人", "", "", ""],
     ]
     writer.writerows(sample)
     return ("\ufeff" + buf.getvalue()).encode("utf-8")
@@ -135,7 +137,21 @@ def _split_names(raw: str) -> list[str]:
     return unique
 
 
-HEADER_ALIASES = {"升级联系人": "直接领导"}
+HEADER_ALIASES = {
+    "责任团队": "支撑团队",
+    "责任人": "支撑联系人",
+    "直接领导": "协调升级联系人",
+    "升级联系人": "协调升级联系人",
+}
+OPTIONAL_HEADERS = {"操作主体"}
+OPERATOR_ROLES = {
+    "流程发起人": "process_initiator",
+    "业务经办人": "business_handler",
+    "业务负责人": "business_owner",
+    "业务经理": "business_manager",
+    "系统运维人员": "system_operator",
+    "指定人员": "designated_person",
+}
 
 
 def _header_map(header: list[str]) -> dict[str, int] | str:
@@ -144,7 +160,7 @@ def _header_map(header: list[str]) -> dict[str, int] | str:
         if not name:
             continue
         index[HEADER_ALIASES.get(name, name)] = i
-    missing = [col for col in HEADERS if col not in index]
+    missing = [col for col in HEADERS if col not in index and col not in OPTIONAL_HEADERS]
     if missing:
         return f"表头缺少列：{'、'.join(missing)}"
     return index
@@ -179,7 +195,9 @@ def parse_flows_from_rows(rows: list[list[str]]) -> tuple[list[ParsedFlow], list
             break
 
         def col(name: str) -> str:
-            idx = mapped[name]
+            idx = mapped.get(name)
+            if idx is None:
+                return ""
             return raw[idx].strip() if idx < len(raw) else ""
 
         domain_name = col("业务域")
@@ -226,7 +244,7 @@ def parse_flows_from_rows(rows: list[list[str]]) -> tuple[list[ParsedFlow], list
 
         system_name = col("系统名")
         action_text = col("动作说明")
-        if not system_name and not action_text and not col("责任人") and not col("责任团队"):
+        if not system_name and not action_text and not col("支撑联系人") and not col("支撑团队"):
             continue
         if not system_name or not action_text:
             issues.append(FlowImportIssue(row=offset, message="系统名与动作说明不能为空"))
@@ -241,11 +259,20 @@ def parse_flows_from_rows(rows: list[list[str]]) -> tuple[list[ParsedFlow], list
                 action_text=action_text,
                 url=url,
                 note=col("依据注意") or None,
-                unit_name=col("责任团队"),
-                person_names=_split_names(col("责任人")),
-                escalation_name=col("直接领导"),
+                operator_role=OPERATOR_ROLES.get(col("操作主体"), "designated_person"),
+                unit_name=col("支撑团队"),
+                person_names=_split_names(col("支撑联系人")),
+                escalation_name=col("协调升级联系人"),
             )
         )
+        operator_label = col("操作主体")
+        if operator_label and operator_label not in OPERATOR_ROLES:
+            issues.append(
+                FlowImportIssue(
+                    row=offset,
+                    message=f"操作主体「{operator_label}」无效，请使用：{'、'.join(OPERATOR_ROLES)}",
+                )
+            )
 
     if data_rows == 0 and not issues:
         issues.append(FlowImportIssue(row=header_idx + 1, message="没有可导入的数据行"))
@@ -255,7 +282,7 @@ def parse_flows_from_rows(rows: list[list[str]]) -> tuple[list[ParsedFlow], list
 def _resolve_unit(name: str, units: dict[str, Unit], row: int, issues: list[FlowImportIssue]) -> Unit | None:
     unit = units.get(name)
     if unit is None:
-        issues.append(FlowImportIssue(row=row, message=f"责任团队「{name}」不在台账中"))
+        issues.append(FlowImportIssue(row=row, message=f"支撑团队「{name}」不在台账中"))
     return unit
 
 
@@ -277,7 +304,7 @@ def _resolve_person(
             issues.append(FlowImportIssue(row=row, message=f"{label}「{name}」在该团队内不唯一"))
             return None
         if matches:
-            issues.append(FlowImportIssue(row=row, message=f"{label}「{name}」不属于责任团队「{unit.name}」"))
+            issues.append(FlowImportIssue(row=row, message=f"{label}「{name}」不属于支撑团队「{unit.name}」"))
             return None
         issues.append(FlowImportIssue(row=row, message=f"{label}「{name}」不在人员台账中"))
         return None
@@ -333,18 +360,18 @@ def build_definitions(
                 if guide.unit_name:
                     unit = _resolve_unit(guide.unit_name, units, guide.row, issues)
                 elif guide.person_names:
-                    issues.append(FlowImportIssue(row=guide.row, message="请先填写责任团队再填写责任人"))
+                    issues.append(FlowImportIssue(row=guide.row, message="请先填写支撑团队再填写支撑联系人"))
                 person_ids: list[int] = []
                 for name in guide.person_names:
                     person = _resolve_person(
-                        name, unit=unit, persons=persons, row=guide.row, issues=issues, label="责任人"
+                        name, unit=unit, persons=persons, row=guide.row, issues=issues, label="支撑联系人"
                     )
                     if person is not None:
                         person_ids.append(person.id)
                 escalation_id = None
                 if guide.escalation_name:
                     if unit is None:
-                        issues.append(FlowImportIssue(row=guide.row, message="请先填写责任团队再填写直接领导"))
+                        issues.append(FlowImportIssue(row=guide.row, message="请先填写支撑团队再填写协调升级联系人"))
                     else:
                         esc = _resolve_person(
                             guide.escalation_name,
@@ -352,7 +379,7 @@ def build_definitions(
                             persons=persons,
                             row=guide.row,
                             issues=issues,
-                            label="直接领导",
+                            label="协调升级联系人",
                         )
                         if esc is not None:
                             escalation_id = esc.id
@@ -362,6 +389,7 @@ def build_definitions(
                         action_text=guide.action_text,
                         url=guide.url,
                         note=guide.note,
+                        operator_role=guide.operator_role,
                         unit_id=unit.id if unit else None,
                         person_ids=person_ids,
                         escalation_person_id=escalation_id,

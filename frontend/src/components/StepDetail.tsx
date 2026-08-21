@@ -5,7 +5,7 @@ interface Props {
   step: Step;
 }
 
-/** 操作指南：环节说明 + 系统操作指引（含责任团队/人与图示） */
+/** 操作指南：环节说明 + 系统操作指引（含操作主体、支撑联系人和图示） */
 export default function StepDetail({ step }: Props) {
   const guideHasAssignees = step.guide.some((g) => g.persons.length > 0 || g.unit);
   // 旧数据：责任人仅挂在环节上、尚未迁入指引时，仍在地图展示，避免“流程条有人、下方没有”
@@ -22,7 +22,7 @@ export default function StepDetail({ step }: Props) {
           </span>
         </div>
         <p className="mt-1.5 text-sm font-medium text-slate-600">
-          归谁办 · 直接领导是谁 · 做什么、交什么 · 对照图示 · 在哪些系统怎么操作（附带链接）
+          谁来操作 · 遇到问题找谁 · 如何协调升级 · 在哪些系统完成什么操作
         </p>
       </div>
 
@@ -39,7 +39,7 @@ export default function StepDetail({ step }: Props) {
 
         {showLegacyPersons && (
           <div className="mt-4">
-            <div className="text-xs font-medium text-slate-500">责任人</div>
+            <div className="text-xs font-medium text-slate-500">历史责任人员</div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               {step.persons.map((person) => (
                 <div key={person.id} className="rounded-xl bg-slate-50 p-3 ring-1 ring-slate-100">

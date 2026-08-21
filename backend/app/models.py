@@ -156,6 +156,9 @@ class GuideItem(Base):
     image_path: Mapped[str | None] = mapped_column(String(300))  # 图示存磁盘，库里只记路径
     action_text: Mapped[str] = mapped_column(Text)
     note: Mapped[str | None] = mapped_column(Text)  # 依据/注意
+    operator_role: Mapped[str] = mapped_column(
+        String(30), default="designated_person", server_default="designated_person"
+    )  # 操作主体角色；流程发起人在办理时动态解析
     unit_id: Mapped[int | None] = mapped_column(
         ForeignKey("units.id", ondelete="RESTRICT"), index=True
     )  # 责任团队（台账 units）

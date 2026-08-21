@@ -9,8 +9,14 @@ def test_event_can_atomically_start_with_first_flow(client, viewer_token):
         headers=headers,
     )
     assert created.status_code == 201, created.text
+    event = created.json()
+    assert event["initiator_user_id"] > 0
+    assert event["initiator_name"]
     assert len(created.json()["flows"]) == 1
     assert created.json()["flows"][0]["flow_id"] == 1
+    reloaded = client.get(f"/api/guide-events/{event['id']}", headers=headers).json()
+    assert reloaded["initiator_user_id"] == event["initiator_user_id"]
+    assert reloaded["initiator_name"] == event["initiator_name"]
 
     before = len(client.get("/api/guide-events", headers=headers).json())
     rejected = client.post(

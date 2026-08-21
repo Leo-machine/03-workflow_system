@@ -80,6 +80,14 @@ export interface BusinessDomainDetail extends BusinessDomain {
 }
 
 // ---------- 流程 ----------
+export type OperatorRole =
+  | "process_initiator"
+  | "business_handler"
+  | "business_owner"
+  | "business_manager"
+  | "system_operator"
+  | "designated_person";
+
 export interface GuideItem {
   id: number;
   order_index: number;
@@ -88,6 +96,7 @@ export interface GuideItem {
   image_path: string | null;
   action_text: string;
   note: string | null;
+  operator_role: OperatorRole;
   unit: Unit | null;
   persons: Person[];
   escalation: PersonBrief | null;
@@ -140,6 +149,8 @@ export interface GuideEventFlow {
 export interface GuideEvent {
   id: number;
   event_key: string;
+  initiator_user_id: number;
+  initiator_name: string;
   title: string;
   external_ref: string | null;
   status: "in_progress" | "completed";
@@ -170,6 +181,7 @@ export interface GuideItemDraft {
   url: string;
   image_path: string | null;
   note: string;
+  operator_role: OperatorRole;
   unit_id: number | null;
   person_ids: number[];
   escalation_person_id: number | null;

@@ -462,7 +462,7 @@ function UnitsTab({ persons, units, onAction }: { persons: Person[]; units: Unit
         >
           ＋ 新增团队
         </button>
-        <span className="ml-auto text-xs text-slate-400">团队负责人是流程「直接领导」的默认人选；人员挂团队，被引用时不可删除</span>
+        <span className="ml-auto text-xs text-slate-400">团队负责人是「协调升级联系人」的默认人选；人员挂团队，被引用时不可删除</span>
       </div>
 
       <div className="mt-3 overflow-x-auto">

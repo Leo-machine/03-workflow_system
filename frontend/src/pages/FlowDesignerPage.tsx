@@ -22,10 +22,12 @@ import ImageUploader from "../components/ImageUploader";
 import Toast from "../components/Toast";
 import { useDialog } from "../components/DialogProvider";
 import PageShell from "../components/PageShell";
+import { OPERATOR_ROLE_OPTIONS } from "../lib/operatorRoles";
 import type {
   FlowDetail,
   FlowMutationResult,
   GuideItemDraft,
+  OperatorRole,
   Person,
   StepDefinitionDraft,
   Unit,
@@ -53,6 +55,7 @@ function emptyGuide(): GuideItemDraft {
     url: "",
     image_path: null,
     note: "",
+    operator_role: "designated_person",
     unit_id: null,
     person_ids: [],
     escalation_person_id: null,
@@ -73,6 +76,7 @@ function fromFlow(flow: FlowDetail): { steps: StepDefinitionDraft[]; migrated: b
       url: g.url ?? "",
       image_path: g.image_path,
       note: g.note ?? "",
+      operator_role: g.operator_role,
       unit_id: g.unit?.id ?? null,
       person_ids: g.persons.map((p) => p.id),
       escalation_person_id: g.escalation?.id ?? null,
@@ -163,6 +167,7 @@ function toDefinitionBody(steps: StepDefinitionDraft[]) {
         url: g.url.trim() || null,
         image_path: g.image_path,
         note: g.note.trim() || null,
+        operator_role: g.operator_role,
         unit_id: g.unit_id,
         person_ids: g.person_ids,
         escalation_person_id: g.escalation_person_id,
@@ -179,7 +184,7 @@ function validateSteps(steps: StepDefinitionDraft[], { requireNonEmpty }: { requ
       if (!g.system_name.trim() || !g.action_text.trim()) return "指引需填写系统名与动作";
       const url = g.url.trim();
       if (url && !/^https?:\/\//i.test(url)) return "指引链接仅支持 http/https";
-      if (g.person_ids.length > 0 && g.unit_id === null) return "请先选择责任团队再选择责任人";
+      if (g.person_ids.length > 0 && g.unit_id === null) return "请先选择支撑团队再选择支撑联系人";
     }
   }
   return null;
@@ -284,13 +289,14 @@ function SortableStepRow({
   );
 }
 
-/** 指引角色：责任团队 / 责任人 / 直接领导（数据来自台账） */
+/** 指引角色：操作主体 / 支撑联系人 / 协调升级联系人（数据来自台账） */
 function GuideAssigneeEditor({
   persons,
   units,
   unitId,
   personIds,
   escalationPersonId,
+  operatorRole,
   onChange,
   onLedgerRefresh,
 }: {
@@ -299,7 +305,9 @@ function GuideAssigneeEditor({
   unitId: number | null;
   personIds: number[];
   escalationPersonId: number | null;
+  operatorRole: OperatorRole;
   onChange: (patch: {
+    operator_role?: OperatorRole;
     unit_id?: number | null;
     person_ids?: number[];
     escalation_person_id?: number | null;
@@ -347,6 +355,23 @@ function GuideAssigneeEditor({
           去台账管理 →
         </Link>
       </div>
+      <div>
+        <label className="mb-1 block text-[11px] font-medium text-slate-500">本步操作主体</label>
+        <select
+          className="focus-csg w-full rounded-md border border-csg-200 bg-white px-2.5 py-1.5 text-sm font-medium text-csg-800"
+          value={operatorRole}
+          onChange={(e) => onChange({ operator_role: e.target.value as OperatorRole })}
+        >
+          {OPERATOR_ROLE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>{option.label}</option>
+          ))}
+        </select>
+        {operatorRole === "process_initiator" && (
+          <div className="mt-1.5 rounded-md bg-csg-50 px-2.5 py-2 text-[11px] font-medium text-csg-700 ring-1 ring-csg-100">
+            运行时自动识别本次办理事项的发起人，不在流程模板中写死姓名。
+          </div>
+        )}
+      </div>
       <select
         className="focus-csg w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm"
         value={unitId ?? ""}
@@ -355,7 +380,7 @@ function GuideAssigneeEditor({
           onChange({ unit_id: next, person_ids: [], escalation_person_id: null });
         }}
       >
-        <option value="">先选择责任团队…</option>
+        <option value="">选择支撑/归属团队…</option>
         {units.map((u) => (
           <option key={u.id} value={u.id}>
             {u.name}
@@ -363,7 +388,9 @@ function GuideAssigneeEditor({
         ))}
       </select>
       <div>
-        <label className="mb-1 block text-[11px] font-medium text-slate-500">责任人</label>
+        <label className="mb-1 block text-[11px] font-medium text-slate-500">
+          {operatorRole === "designated_person" ? "指定操作人员 / 支撑联系人" : "业务/技术支撑联系人"}
+        </label>
         <select
           className="focus-csg w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm disabled:bg-slate-100"
           value=""
@@ -376,9 +403,9 @@ function GuideAssigneeEditor({
         >
           <option value="">
             {unitId === null
-              ? "请先选择责任团队"
+              ? "请先选择支撑/归属团队"
               : candidates.length
-                ? "选择责任人（可多选）…"
+                ? "选择联系人（可多选）…"
                 : "该团队暂无在职人员"}
           </option>
           {candidates.map((p) => (
@@ -407,11 +434,11 @@ function GuideAssigneeEditor({
             ))}
           </div>
         ) : (
-          <p className="mt-1 text-[11px] text-slate-400">尚未选择责任人。</p>
+          <p className="mt-1 text-[11px] text-slate-400">尚未选择支撑联系人。</p>
         )}
       </div>
       <div>
-        <label className="mb-1 block text-[11px] font-medium text-slate-500">直接领导</label>
+        <label className="mb-1 block text-[11px] font-medium text-slate-500">协调升级联系人</label>
         <select
           className="focus-csg w-full rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-sm disabled:bg-slate-100"
           value={escalationPersonId ?? ""}
@@ -422,7 +449,7 @@ function GuideAssigneeEditor({
         >
           <option value="">
             {unitId === null
-              ? "请先选择责任团队"
+              ? "请先选择支撑/归属团队"
               : units.find((u) => u.id === unitId)?.leader
               ? `默认：团队负责人 ${units.find((u) => u.id === unitId)?.leader?.name}`
               : "默认：该团队负责人（未指定则不显示）"}
@@ -435,9 +462,9 @@ function GuideAssigneeEditor({
             ))}
         </select>
         {leaderOutsideTeam ? (
-          <p className="mt-1 text-[11px] font-medium text-red-600">当前直接领导不属于责任团队，请重新选择。</p>
+          <p className="mt-1 text-[11px] font-medium text-red-600">当前协调升级联系人不属于所选团队，请重新选择。</p>
         ) : (
-          <p className="mt-1 text-[11px] text-slate-400">仅可选择当前责任团队成员；留空时默认取团队负责人。</p>
+          <p className="mt-1 text-[11px] text-slate-400">仅可选择当前团队成员；留空时默认取团队负责人。</p>
         )}
       </div>
       <button type="button" className="text-[11px] text-slate-500 hover:text-csg-700" onClick={onLedgerRefresh}>
@@ -941,6 +968,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                             unitId={g.unit_id}
                             personIds={g.person_ids}
                             escalationPersonId={g.escalation_person_id}
+                            operatorRole={g.operator_role}
                             onChange={(patch) => updateGuide(index, patch)}
                             onLedgerRefresh={() => void refreshLedgers()}
                           />
@@ -954,7 +982,7 @@ export default function FlowDesignerPage({ user, onLogout }: { user: User; onLog
                         </div>
                       ))}
                       {selected.guide.length === 0 && (
-                        <p className="text-xs text-slate-400">本环节暂无指引。责任人、直接领导与图示均在指引条目中配置。</p>
+                        <p className="text-xs text-slate-400">本环节暂无指引。操作主体、支撑联系人、协调升级联系人与图示均在指引条目中配置。</p>
                       )}
                     </div>
                   </div>

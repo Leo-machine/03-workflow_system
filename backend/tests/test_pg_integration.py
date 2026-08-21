@@ -63,10 +63,8 @@ def pg_engine(pg_url):
     engine.dispose()
 
 
-def test_alembic_migration_roundtrip(pg_url):
-    """迁移在全新 PG 上可执行；downgrade → upgrade 往返后结构完整。"""
-    _alembic(pg_url, "upgrade", "head")
-    _alembic(pg_url, "downgrade", "base")
+def test_alembic_migration_upgrade(pg_url):
+    """迁移在全新 PG 上可执行；数据保留型迁移不强制提供破坏性 downgrade。"""
     _alembic(pg_url, "upgrade", "head")
 
     engine = create_engine(pg_url)

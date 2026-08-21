@@ -73,6 +73,7 @@ def _guide_out(guide: GuideItem) -> GuideItemOut:
         image_path=guide.image_path,
         action_text=guide.action_text,
         note=guide.note,
+        operator_role=guide.operator_role,
         unit=UnitOut.model_validate(guide.unit) if guide.unit else None,
         persons=[PersonOut.model_validate(p) for p in guide.persons],
         escalation=_person_brief(guide.escalation_person),
@@ -342,6 +343,7 @@ def _norm_guide(
     url: str | None,
     image: str | None,
     note: str | None,
+    operator_role: str,
     unit_id: int | None,
     person_ids: list[int],
     escalation_person_id: int | None = None,
@@ -352,6 +354,7 @@ def _norm_guide(
         (url or "").strip(),
         (image or "").strip(),
         (note or "").strip(),
+        operator_role,
         unit_id,
         tuple(sorted(person_ids)),
         escalation_person_id,
@@ -399,7 +402,7 @@ def _load_definition_persons(db: Session, steps: list[StepDefinitionIn]) -> dict
         found_units = set(db.scalars(select(Unit.id).where(Unit.id.in_(all_unit_ids))).all())
         missing_units = all_unit_ids - found_units
         if missing_units:
-            raise HTTPException(status_code=422, detail=f"责任团队不存在: {sorted(missing_units)}")
+            raise HTTPException(status_code=422, detail=f"支撑团队不存在: {sorted(missing_units)}")
     return persons_by_id
 
 
@@ -417,24 +420,24 @@ def _validate_definition_steps(steps: list[StepDefinitionIn], persons_by_id: dic
             if not is_valid_media_path(guide.image_path):
                 raise HTTPException(status_code=422, detail="指引图示路径非法")
             if len(guide.person_ids) != len(set(guide.person_ids)):
-                raise HTTPException(status_code=422, detail="同一指引责任人不能重复")
+                raise HTTPException(status_code=422, detail="同一指引支撑联系人不能重复")
             if guide.person_ids and guide.unit_id is None:
-                raise HTTPException(status_code=422, detail="请先选择责任团队再选择责任人")
+                raise HTTPException(status_code=422, detail="请先选择支撑团队再选择支撑联系人")
             for pid in guide.person_ids:
                 person = persons_by_id[pid]
                 if person.unit_id != guide.unit_id:
                     raise HTTPException(
                         status_code=422,
-                        detail=f"责任人「{person.name}」不属于所选责任团队",
+                        detail=f"支撑联系人「{person.name}」不属于所选支撑团队",
                     )
             if guide.escalation_person_id is not None:
                 if guide.unit_id is None:
-                    raise HTTPException(status_code=422, detail="请先选择责任团队再选择直接领导")
+                    raise HTTPException(status_code=422, detail="请先选择支撑团队再选择协调升级联系人")
                 leader = persons_by_id[guide.escalation_person_id]
                 if leader.unit_id != guide.unit_id:
                     raise HTTPException(
                         status_code=422,
-                        detail=f"直接领导「{leader.name}」不属于所选责任团队",
+                        detail=f"协调升级联系人「{leader.name}」不属于所选支撑团队",
                     )
 
 
@@ -460,6 +463,7 @@ def _insert_definition_steps(db: Session, flow: Flow, steps: list[StepDefinition
                 image_path=guide.image_path or None,
                 action_text=guide.action_text.strip(),
                 note=guide.note,
+                operator_role=guide.operator_role,
                 unit_id=guide.unit_id,
                 escalation_person_id=guide.escalation_person_id,
             )
@@ -531,6 +535,7 @@ def _copy_flow_structure(db: Session, source: Flow, dest: Flow) -> None:
                 image_path=guide.image_path,
                 action_text=guide.action_text,
                 note=guide.note,
+                operator_role=guide.operator_role,
                 unit_id=guide.unit_id,
                 escalation_person_id=guide.escalation_person_id,
             )
@@ -617,6 +622,7 @@ def put_flow_definition(
                     g.url,
                     g.image_path,
                     g.note,
+                    g.operator_role,
                     g.unit_id,
                     [p.id for p in g.persons],
                     g.escalation_person_id,
@@ -638,6 +644,7 @@ def put_flow_definition(
                     g.url,
                     g.image_path,
                     g.note,
+                    g.operator_role,
                     g.unit_id,
                     g.person_ids,
                     g.escalation_person_id,

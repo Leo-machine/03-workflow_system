@@ -1,5 +1,6 @@
 """API 出入参模型（与前端 types.ts 对齐）。"""
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -153,6 +154,16 @@ class DomainUpsertIn(BaseModel):
 
 
 # ---------- flows ----------
+OperatorRole = Literal[
+    "process_initiator",
+    "business_handler",
+    "business_owner",
+    "business_manager",
+    "system_operator",
+    "designated_person",
+]
+
+
 class GuideItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -163,10 +174,11 @@ class GuideItemOut(BaseModel):
     image_path: str | None
     action_text: str
     note: str | None
-    unit: UnitOut | None = None  # 责任团队（台账）
-    persons: list[PersonOut] = []  # 责任人（受团队约束，可多选）
-    escalation: PersonBrief | None = None  # 本条指定的直接领导；空则用团队负责人
-    direct_leader: PersonBrief | None = None  # 解析后的直接领导（指定或默认）
+    operator_role: OperatorRole = "designated_person"
+    unit: UnitOut | None = None  # 支撑团队（台账）
+    persons: list[PersonOut] = []  # 支撑联系人（受团队约束，可多选）
+    escalation: PersonBrief | None = None  # 本条指定的协调升级联系人；空则用团队负责人
+    direct_leader: PersonBrief | None = None  # 兼容字段：解析后的协调升级联系人
 
 
 class StepOut(BaseModel):
@@ -216,9 +228,10 @@ class GuideItemIn(BaseModel):
     url: str | None = None
     image_path: str | None = None
     note: str | None = None
-    unit_id: int | None = None  # 责任团队
-    person_ids: list[int] = []  # 责任人（须属于所选团队）
-    escalation_person_id: int | None = None  # 直接领导；空则用责任团队负责人
+    operator_role: OperatorRole = "designated_person"
+    unit_id: int | None = None  # 支撑团队
+    person_ids: list[int] = []  # 支撑联系人（须属于所选团队）
+    escalation_person_id: int | None = None  # 协调升级联系人；空则用支撑团队负责人
 
 
 class StepDefinitionIn(BaseModel):
@@ -303,6 +316,8 @@ class GuideEventFlowOut(BaseModel):
 class GuideEventOut(BaseModel):
     id: int
     event_key: str
+    initiator_user_id: int
+    initiator_name: str
     title: str
     external_ref: str | None
     status: str
